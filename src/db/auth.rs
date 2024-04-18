@@ -10,7 +10,7 @@ impl DbController {
     async fn does_email_exist(&self, email: &str) -> bool {
         sqlx::query("SELECT id FROM auths WHERE email = ?")
             .bind(email)
-            .fetch_one(&self.pool)
+            .fetch_one(&self.auth_pool)
             .await
             .is_ok()
     }
@@ -32,7 +32,7 @@ impl DbController {
                 .bind(auth.hash)
                 .bind(auth.community_id.to_string())
                 .bind(auth.refresh_token.as_str())
-                .execute(&self.pool)
+                .execute(&self.auth_pool)
                 .await
         {
             println!("{:#?}", err);
@@ -48,7 +48,7 @@ impl DbController {
     pub async fn login(&self, email: Email, password: Password) -> Result<Tokens, Error> {
         if let Ok(auth) = sqlx::query("SELECT * FROM auths WHERE email = ?")
             .bind(email.as_str())
-            .fetch_one(&self.pool)
+            .fetch_one(&self.auth_pool)
             .await
         {
             // Verify password sent by user
@@ -65,7 +65,7 @@ impl DbController {
             if sqlx::query("UPDATE auths SET refresh_token = ? WHERE email = ?")
                 .bind(refresh_token.as_str())
                 .bind(email.as_str())
-                .execute(&self.pool)
+                .execute(&self.auth_pool)
                 .await
                 .is_err()
             {
@@ -88,7 +88,7 @@ impl DbController {
         if sqlx::query("UPDATE auths SET refresh_token = ? WHERE community_id = ?")
             .bind("")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&self.auth_pool)
             .await
             .is_err()
         {
@@ -104,7 +104,7 @@ impl DbController {
     pub async fn refresh(&self, id: &str) -> Result<AccessToken, Error> {
         let Ok(auth) = sqlx::query("SELECT id FROM auths WHERE id = ?")
             .bind(id)
-            .fetch_one(&self.pool)
+            .fetch_one(&self.auth_pool)
             .await
         else {
             return Err(AuthError::Forbidden.extend());
