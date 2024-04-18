@@ -14,11 +14,6 @@ pub struct Query;
 
 #[Object]
 impl Query {
-    // Placeholder query
-    async fn add(&self, a: u32, b: u32) -> u32 {
-        a + b
-    }
-
     async fn logout(&self, ctx: &Context<'_>) -> Result<AuthResponse, Error> {
         // Get access cookie from headers
         let cookies = ctx.data::<Cookies>()?;
