@@ -1,111 +1,67 @@
-use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
-    Argon2,
-};
-
-use fancy_regex::Regex;
+use async_graphql::{ErrorExtensions, InputObject, SimpleObject};
 use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
+use ulid::Ulid;
 use uuid::Uuid;
 
-use super::JwtManager;
+use super::{
+    email::Email,
+    jwt::{AccessToken, RefreshToken},
+    AuthError,
+};
 
-#[derive(Debug)]
-pub struct Team {
-    pub id: Uuid,
-    pub name: String,
-    _members: Vec<Uuid>,
-}
-
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, FromRow)]
 pub struct Auth {
     pub id: Uuid,
-    pub team: Option<Uuid>,
-    pub email: String,
+    pub email: Email,
     pub hash: String,
-    pub refresh_token: String,
+    pub community_id: Ulid,
+    pub refresh_token: RefreshToken,
 }
 
 impl Auth {
-    pub fn new(request: UserRegistrationRequest) -> (Self, String) {
-        let argon2 = Argon2::default();
-        let salt = SaltString::generate(&mut OsRng);
+    pub fn new(email: Email, hash: String) -> Result<(Self, AccessToken), async_graphql::Error> {
+        let auth_id = Uuid::new_v4();
+        let community_id = Ulid::new();
 
-        let hash = argon2
-            .hash_password(request.password.as_bytes(), &salt)
-            .unwrap()
-            .to_string();
-
-        let mut auth = Self {
-            id: uuid::Uuid::new_v4(),
-            team: None,
-            email: request.email,
-            hash,
-            refresh_token: String::new(),
+        let Ok(refresh_token) = RefreshToken::new(&auth_id.to_string()) else {
+            return Err(
+                AuthError::ServerError("Error creating refresh token".to_string())
+                    .extend_with(|_, e| e.set("code", 500)),
+            );
+        };
+        let Ok(access_token) = AccessToken::new(&community_id.to_string()) else {
+            return Err(
+                AuthError::ServerError("Error creating access token".to_string())
+                    .extend_with(|_, e| e.set("code", 500)),
+            );
         };
 
-        auth.refresh_token = JwtManager::new_refresh_token(&auth.id.to_string()).unwrap();
-        let access_token = JwtManager::new_access_token(&auth.id.to_string())
-            .expect("error creating access token");
-
-        (auth, access_token)
-    }
-
-    pub fn new_with_team(request: UserRegistrationRequest) -> (Self, String) {
-        let argon2 = Argon2::default();
-        let salt = SaltString::generate(&mut OsRng);
-
-        let hash = argon2
-            .hash_password(request.password.as_bytes(), &salt)
-            .unwrap()
-            .to_string();
-
-        let mut auth = Self {
-            id: uuid::Uuid::new_v4(),
-            team: request.team,
-            email: request.email,
+        let auth = Self {
+            id: auth_id,
+            email,
             hash,
-            refresh_token: String::new(),
+            community_id,
+            refresh_token,
         };
 
-        auth.refresh_token = JwtManager::new_refresh_token(&auth.refresh_token).unwrap();
-        let access_token = JwtManager::new_access_token(&auth.id.to_string())
-            .expect("error creating access token");
-
-        (auth, access_token)
-    }
-
-    pub fn verify_password(password: &[u8], hash: &str) -> bool {
-        Argon2::default()
-            .verify_password(password, &PasswordHash::new(hash).unwrap())
-            .is_ok()
-    }
-
-    pub fn validate_email(email: &str) -> bool {
-        let validation_test = Regex::new(r"^(\w+@[a-zA-Z_]+?\.[a-zA-Z.]{2,6})$").unwrap();
-        validation_test.is_match(email).unwrap_or(false)
-    }
-
-    pub fn validate_password(password: &str) -> bool {
-        let validation_test =
-            Regex::new(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#$%]).{8,24}$").unwrap();
-        validation_test.is_match(password).unwrap_or(false)
+        Ok((auth, access_token))
     }
 }
 
-#[derive(Default, Deserialize)]
-pub struct UserAccessRequest {
+#[derive(Default, Deserialize, InputObject)]
+pub struct AuthAccessRequest {
     pub email: String,
     pub password: String,
 }
 
-#[derive(Default, Deserialize, Serialize, Debug)]
-pub struct UserRegistrationRequest {
+#[derive(Default, Deserialize, Serialize, Debug, InputObject)]
+pub struct AuthRegistrationRequest {
     pub email: String,
     pub password: String,
-    pub team: Option<Uuid>,
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Serialize, SimpleObject)]
 pub struct AuthResponse {
     success: bool,
     message: Option<String>,

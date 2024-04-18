@@ -1,39 +1,23 @@
-use std::{error::Error, sync::Arc};
-
-use async_graphql::{http::GraphiQLSource, EmptyMutation, EmptySubscription, Schema};
-use async_graphql_axum::GraphQL;
-use axum::{
-    response::Html,
-    routing::{get, post},
-    Router,
-};
+use axum::{routing::get, Router};
+use spade_api::ApplicationState;
+use std::error::Error;
 use tokio::net::TcpListener;
 use tower_cookies::CookieManagerLayer;
-
-use spade_api::{ApplicationState, AuthHandlers, Query};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     spade_api::welcome();
 
     let app_state = ApplicationState::init().await;
-    let community_schema = GraphQL::new(
-        Schema::build(Query, EmptyMutation, EmptySubscription)
-            .data(Arc::clone(&app_state))
-            .finish(),
-    );
 
     let app = Router::new()
-        .route("/auth/register", post(AuthHandlers::register_user))
-        .route("/auth/login", post(AuthHandlers::login_user))
-        .route("/auth/logout", get(AuthHandlers::logout_user))
-        .route("/auth/refresh", get(AuthHandlers::refresh_user))
+        .route(
+            "/auth",
+            get(spade_api::auth_playground).post(spade_api::auth_gateway),
+        )
         .route(
             "/community",
-            get(Html(
-                GraphiQLSource::build().endpoint("/community").finish(),
-            ))
-            .post_service(community_schema),
+            get(spade_api::community_playground).post(spade_api::community_gateway),
         )
         .with_state(app_state)
         .layer(CookieManagerLayer::new());

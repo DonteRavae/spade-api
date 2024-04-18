@@ -22,4 +22,5 @@ serde = { version = "1.0.197", features = ["derive"] }
 sqlx = { version="0.7.3", features = ["runtime-tokio", "mysql", "chrono"] }
 tokio = { version = "1.36.0", features = ["full"] }
 tower-cookies = "0.10.0"
+ulid = { version = "1.1.2", features = ["serde"] }
 uuid = { version = "1.7.0", features = ["v4", "serde"] }

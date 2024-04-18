@@ -1,129 +1,116 @@
-use crate::auth::types::{Auth, JwtManager, UserAccessRequest, UserRegistrationRequest};
+use crate::auth::{AccessToken, Auth, AuthError, Email, Password, RefreshToken};
+use async_graphql::{Error, ErrorExtensions};
 use sqlx::Row;
 
 use super::DbController;
 
-type Tokens = (String, String);
+type Tokens = (AccessToken, RefreshToken);
 
 impl DbController {
     async fn does_email_exist(&self, email: &str) -> bool {
-        return sqlx::query("SELECT id FROM auths WHERE email = ?")
+        sqlx::query("SELECT id FROM auths WHERE email = ?")
             .bind(email)
             .fetch_one(&self.pool)
             .await
-            .is_ok();
+            .is_ok()
     }
 
-    pub async fn register(&self, request: UserRegistrationRequest) -> Result<Tokens, String> {
+    pub async fn register(&self, email: Email, password: Password) -> Result<Tokens, Error> {
         // Check if email exists
-        if self.does_email_exist(&request.email).await {
-            return Err("User already exists".to_string());
+        if self.does_email_exist(email.as_str()).await {
+            return Err(AuthError::DuplicateUser("User already exists".to_string())
+                .extend_with(|_, e| e.set("code", 400)));
         }
 
         // Create User representation for database
-        let (auth, access_token) = if request.team.is_none() {
-            Auth::new(request)
-        } else {
-            Auth::new_with_team(request)
+        let (auth, access_token) = Auth::new(email, password.hash()?)?;
+
+        if let Err(err) =
+            sqlx::query("INSERT INTO auths (id, email, hash, community_id, refresh_token) VALUES (?, ?, ?, ?, ?)")
+                .bind(auth.id.to_string())
+                .bind(auth.email.as_str())
+                .bind(auth.hash)
+                .bind(auth.community_id.to_string())
+                .bind(auth.refresh_token.as_str())
+                .execute(&self.pool)
+                .await
+        {
+            println!("{:#?}", err);
+            return Err(
+                AuthError::ServerError("Server error. Please try again".to_string())
+                    .extend_with(|_, e| e.set("code", 500)),
+            );
         };
 
-        if auth.team.is_some() {
-            if let Err(err) = sqlx::query(
-                "INSERT INTO auths (id, team, email, hash, refresh_token) VALUES (?, ?, ?, ?, ?)",
-            )
-            .bind(auth.id.to_string())
-            .bind(auth.team.unwrap().to_string())
-            .bind(auth.email)
-            .bind(auth.hash)
-            .bind(auth.refresh_token.clone())
-            .execute(&self.pool)
-            .await
-            {
-                println!("{:#?}", err);
-                return Err("Server error. Please try again".to_string());
-            }
-        } else {
-            if let Err(err) = sqlx::query(
-                "INSERT INTO auths (id, email, hash, refresh_token) VALUES (?, ?, ?, ?)",
-            )
-            .bind(auth.id.to_string())
-            .bind(auth.email)
-            .bind(auth.hash)
-            .bind(auth.refresh_token.clone())
-            .execute(&self.pool)
-            .await
-            {
-                println!("{:#?}", err);
-                return Err("Server error. Please try again".to_string());
-            };
-        }
         Ok((access_token, auth.refresh_token))
     }
 
-    pub async fn login(&self, request: UserAccessRequest) -> Result<Tokens, String> {
-        if let Ok(user) = sqlx::query("SELECT * FROM auths WHERE email = ?")
-            .bind(&request.email)
+    pub async fn login(&self, email: Email, password: Password) -> Result<Tokens, Error> {
+        if let Ok(auth) = sqlx::query("SELECT * FROM auths WHERE email = ?")
+            .bind(email.as_str())
             .fetch_one(&self.pool)
             .await
         {
-            let user_id: &str = user.get("id");
-            let hash: &str = user.get("hash");
+            // Verify password sent by user
+            let hash: &str = auth.get("hash");
+            password.verify(hash)?;
 
-            // If it gets to this point, there's guaranteed to be a hash value returned from the user row.
-            let is_auth_valid = Auth::verify_password(request.password.as_bytes(), hash);
+            // Generate JWT tokens
+            let auth_id: &str = auth.get("id");
+            let community_id: &str = auth.get("community_id");
+            let access_token = AccessToken::new(community_id)?;
+            let refresh_token = RefreshToken::new(auth_id)?;
 
-            if !is_auth_valid {
-                return Err("Please enter a valid email or password".to_string());
-            }
-
-            let access_token = JwtManager::new_access_token(user_id).unwrap();
-            let refresh_token = JwtManager::new_refresh_token(user_id).unwrap();
-
+            // Update refresh token in database
             if sqlx::query("UPDATE auths SET refresh_token = ? WHERE email = ?")
-                .bind(&refresh_token)
-                .bind(&request.email)
+                .bind(refresh_token.as_str())
+                .bind(email.as_str())
                 .execute(&self.pool)
                 .await
                 .is_err()
             {
-                return Err("There seems to be a server error. Please try again".to_string());
+                return Err(AuthError::ServerError(
+                    "There seems to be a server error. Please try again".to_string(),
+                )
+                .extend_with(|_, e| e.set("code", 500)));
             }
 
-            return Ok((access_token, refresh_token));
+            Ok((access_token, refresh_token))
         } else {
-            return Err("Please enter a valid email or password".to_string());
+            Err(
+                AuthError::ValidationError("Please enter a valid email or password".to_string())
+                    .extend_with(|_, e| e.set("code", 400)),
+            )
         }
     }
 
-    pub async fn logout(&self, id: &str) -> Result<(), String> {
-        if sqlx::query("UPDATE auths SET refresh_token = ? WHERE id = ?")
+    pub async fn logout(&self, id: &str) -> Result<(), Error> {
+        if sqlx::query("UPDATE auths SET refresh_token = ? WHERE community_id = ?")
             .bind("")
             .bind(id)
             .execute(&self.pool)
             .await
             .is_err()
         {
-            return Err("Error logging out. Please try again".to_string());
+            return Err(
+                AuthError::ServerError("Error logging out. Please try again".to_string())
+                    .extend_with(|_, e| e.set("code", 500)),
+            );
         }
 
         Ok(())
     }
 
-    pub async fn refresh(&self, id: &str) -> Result<String, String> {
-        let Ok(user) = sqlx::query("SELECT id FROM auths WHERE id = ?")
+    pub async fn refresh(&self, id: &str) -> Result<AccessToken, Error> {
+        let Ok(auth) = sqlx::query("SELECT id FROM auths WHERE id = ?")
             .bind(id)
             .fetch_one(&self.pool)
             .await
         else {
-            return Err("Forbidden".to_string());
+            return Err(AuthError::Forbidden.extend());
         };
 
-        let user_id: &str = user.get("id");
-
-        let Ok(access_token) = JwtManager::new_access_token(user_id) else {
-            return Err("Server Error. Please try again.".to_string());
-        };
-
-        Ok(access_token)
+        let auth_id: &str = auth.get("id");
+        Ok(AccessToken::new(auth_id)?)
     }
 }
