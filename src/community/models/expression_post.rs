@@ -88,37 +88,37 @@ impl ExpressionPost {
         post: NewExpressionPost,
         author: String,
     ) -> Result<Self, Error> {
-        let Ok(profile) = sqlx::query("SELECT * FROM user_profiles WHERE id = ?")
-            .bind(&author)
-            .fetch_one(&db.community_pool)
-            .await
-        else {
-            return Err(CommunityError::Unauthorized.extend_with(|_, e| {
-                e.set("reason", "User is either not logged in or does not exist")
-            }));
-        };
+        let profile = UserProfile::get_by_id(db, author).await?;
 
         let post_id = Ulid::new().to_string();
-        sqlx::query("INSERT INTO expression_posts(id, title, subtitle, author, content_type, content_value) VALUES (?, ?, ?, ?, ?, ?)")
-            .bind(&post_id)
-            .bind(&post.title)
-            .bind(&post.subtitle)
-            .bind(author)
-            .bind(&post.content.kind)
-            .bind(&post.content.value)
-            .execute(&db.community_pool)
-            .await?;
+        sqlx::query(
+            r#"
+            INSERT INTO 
+                expression_posts(
+                    id, 
+                    title, 
+                    subtitle, 
+                    author, 
+                    content_type, 
+                    content_value
+                ) 
+            VALUES (?, ?, ?, ?, ?, ?)
+        "#,
+        )
+        .bind(&post_id)
+        .bind(&post.title)
+        .bind(&post.subtitle)
+        .bind(&profile.id)
+        .bind(&post.content.kind)
+        .bind(&post.content.value)
+        .execute(&db.community_pool)
+        .await?;
 
         Ok(ExpressionPost {
             id: post_id,
             title: post.title,
             subtitle: post.subtitle,
-            author: UserProfile::new(
-                profile.get("id"),
-                profile.get("username"),
-                profile.get("avatar"),
-                None,
-            ),
+            author: UserProfile::new(profile.id, profile.username, profile.avatar, profile.likes),
             content: ExpressionPostContent {
                 kind: post.content.kind,
                 value: post.content.value,
@@ -155,14 +155,25 @@ impl ExpressionPost {
         request: NewReplyRequest,
     ) -> Result<Reply, Error> {
         let reply_id = Ulid::new().to_string();
-        if sqlx::query("INSERT INTO replies(id, author, parent, content) VALUES(?, ?, ?, ?)")
-            .bind(&reply_id)
-            .bind(&author)
-            .bind(&request.parent)
-            .bind(&request.content)
-            .execute(&db.community_pool)
-            .await
-            .is_err()
+        if sqlx::query(
+            r#"
+            INSERT INTO 
+                replies(
+                    id, 
+                    author, 
+                    parent, 
+                    content
+                ) 
+            VALUES(?, ?, ?, ?)
+        "#,
+        )
+        .bind(&reply_id)
+        .bind(&author)
+        .bind(&request.parent)
+        .bind(&request.content)
+        .execute(&db.community_pool)
+        .await
+        .is_err()
         {
             return Err(CommunityError::ServerError(
                 "Seems there was an error adding your request. Please try again.".to_string(),

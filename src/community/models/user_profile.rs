@@ -5,10 +5,10 @@ use crate::{community::CommunityError, db::DbController};
 
 #[derive(Debug, FromRow, SimpleObject, InputObject, Default)]
 pub struct UserProfile {
-    id: String,
-    username: String,
-    avatar: String,
-    likes: Option<Vec<String>>,
+    pub id: String,
+    pub username: String,
+    pub avatar: String,
+    pub likes: Option<Vec<String>>,
 }
 
 impl UserProfile {
@@ -52,10 +52,13 @@ impl UserProfile {
     }
 
     pub async fn get_by_id(db: &DbController, id: String) -> Result<Self, Error> {
-        let profile = sqlx::query("SELECT id, username, avatar, (SELECT JSON_ARRAYAGG(likes.parent_id) FROM likes) as likes FROM user_profiles WHERE id = ? GROUP BY user_profiles.id")
+        let Ok(profile) = sqlx::query("SELECT id, username, avatar, (SELECT JSON_ARRAYAGG(likes.parent_id) FROM likes) as likes FROM user_profiles WHERE id = ? GROUP BY user_profiles.id")
             .bind(id)
             .fetch_one(&db.community_pool)
-            .await?;
+            .await else {
+                return Err(CommunityError::Unauthorized.extend_with(|_, e| {
+                e.set("reason", "User is either not logged in or does not exist")
+            }))};
 
         let likes: Json<Option<Vec<String>>> = profile.get("likes");
 
