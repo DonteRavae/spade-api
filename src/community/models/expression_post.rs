@@ -1,5 +1,6 @@
 use crate::{community::CommunityError, db::DbController};
 use async_graphql::{Error, ErrorExtensions, InputObject, SimpleObject};
+use chrono::{DateTime, Utc};
 use sqlx::{FromRow, Row};
 use ulid::Ulid;
 
@@ -22,6 +23,8 @@ pub struct ExpressionPost {
     subtitle: Option<String>,
     author: UserProfile,
     content: ExpressionPostContent,
+    created_at: DateTime<Utc>,
+    last_modified: DateTime<Utc>,
 }
 
 impl ExpressionPost {
@@ -32,6 +35,8 @@ impl ExpressionPost {
         author: UserProfile,
         content_type: String,
         content_value: String,
+        created_at: DateTime<Utc>,
+        last_modified: DateTime<Utc>,
     ) -> Self {
         Self {
             id,
@@ -46,6 +51,8 @@ impl ExpressionPost {
                 kind: content_type,
                 value: content_value,
             },
+            created_at,
+            last_modified,
         }
     }
 
@@ -64,7 +71,9 @@ impl ExpressionPost {
                     ) 
                 AS author, 
                 content_type, 
-                content_value 
+                content_value ,
+                created_at, 
+                last_modified
             FROM expression_posts 
             JOIN user_profiles 
                 AS profile 
@@ -88,6 +97,8 @@ impl ExpressionPost {
             ),
             post.get("content_type"),
             post.get("content_value"),
+            post.get("created_at"),
+            post.get("last_modified"),
         ))
     }
 
@@ -122,6 +133,11 @@ impl ExpressionPost {
         .execute(&db.community_pool)
         .await?;
 
+        let row = sqlx::query("SELECT created_at, last_modified FROM replies WHERE id = ?")
+            .bind(&post_id)
+            .fetch_one(&db.community_pool)
+            .await?;
+
         Ok(ExpressionPost {
             id: post_id,
             title: post.title,
@@ -131,6 +147,8 @@ impl ExpressionPost {
                 kind: post.content.kind,
                 value: post.content.value,
             },
+            created_at: row.get("created_at"),
+            last_modified: row.get("last_modified"),
         })
     }
 
