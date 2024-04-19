@@ -50,12 +50,19 @@ impl ExpressionPost {
     }
 
     pub async fn get_by_id(db: &DbController, id: String) -> Result<Self, Error> {
-        let post = sqlx::query(r#"
+        let post = sqlx::query(
+            r#"
             SELECT
                 id, 
                 title, 
                 subtitle, 
-                JSON_OBJECT('id', profile.id, 'username', profile.username, 'avatar', profile.avatar) AS author, 
+                JSON_OBJECT
+                    (
+                        'id', profile.id,
+                        'username', profile.username,
+                        'avatar', profile.avatar
+                    ) 
+                AS author, 
                 content_type, 
                 content_value 
             FROM expression_posts 
@@ -63,7 +70,8 @@ impl ExpressionPost {
                 AS profile 
                 ON expressions_post.author = profile.id 
             WHERE id = ?
-        "#)
+        "#,
+        )
         .bind(id)
         .fetch_one(&db.community_pool)
         .await?;
@@ -93,8 +101,8 @@ impl ExpressionPost {
         let post_id = Ulid::new().to_string();
         sqlx::query(
             r#"
-            INSERT INTO 
-                expression_posts(
+            INSERT INTO expression_posts
+                (
                     id, 
                     title, 
                     subtitle, 
@@ -133,11 +141,17 @@ impl ExpressionPost {
     ) -> Result<(), Error> {
         let statement = if update_request.update_value == 1 {
             r#"
-                INSERT INTO likes(parent_id, author) VALUES (?, ?)
+                INSERT INTO likes
+                    (
+                        parent_id, 
+                        author
+                    ) VALUES (?, ?)
             "#
         } else {
             r#"
-                DELETE FROM likes WHERE parent_id = ? AND author = ?
+                DELETE FROM likes 
+                WHERE parent_id = ? 
+                AND author = ?
             "#
         };
 
@@ -157,8 +171,8 @@ impl ExpressionPost {
         let reply_id = Ulid::new().to_string();
         if sqlx::query(
             r#"
-            INSERT INTO 
-                replies(
+            INSERT INTO replies
+                (
                     id, 
                     author, 
                     parent, 

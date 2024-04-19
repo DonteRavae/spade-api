@@ -41,24 +41,51 @@ impl UserProfile {
             );
         }
 
-        sqlx::query("INSERT INTO user_profiles(id, username, avatar) VALUES (?, ?, ?)")
-            .bind(&id)
-            .bind(&details.username)
-            .bind(&details.avatar)
-            .execute(&db.community_pool)
-            .await?;
+        sqlx::query(
+            r#"
+            INSERT INTO user_profiles
+                (
+                    id, 
+                    username, 
+                    avatar
+                ) 
+                VALUES (?, ?, ?)
+            "#,
+        )
+        .bind(&id)
+        .bind(&details.username)
+        .bind(&details.avatar)
+        .execute(&db.community_pool)
+        .await?;
 
         Ok(Self::new(id, details.username, details.avatar, None))
     }
 
     pub async fn get_by_id(db: &DbController, id: String) -> Result<Self, Error> {
-        let Ok(profile) = sqlx::query("SELECT id, username, avatar, (SELECT JSON_ARRAYAGG(likes.parent_id) FROM likes) as likes FROM user_profiles WHERE id = ? GROUP BY user_profiles.id")
-            .bind(id)
-            .fetch_one(&db.community_pool)
-            .await else {
-                return Err(CommunityError::Unauthorized.extend_with(|_, e| {
+        let Ok(profile) = sqlx::query(
+            r#"
+            SELECT 
+                id, 
+                username, 
+                avatar, 
+                (
+                    SELECT 
+                        JSON_ARRAYAGG(likes.parent_id) 
+                    FROM likes
+                ) as likes 
+            FROM user_profiles 
+            WHERE id = ? 
+            GROUP BY user_profiles.id
+        "#,
+        )
+        .bind(id)
+        .fetch_one(&db.community_pool)
+        .await
+        else {
+            return Err(CommunityError::Unauthorized.extend_with(|_, e| {
                 e.set("reason", "User is either not logged in or does not exist")
-            }))};
+            }));
+        };
 
         let likes: Json<Option<Vec<String>>> = profile.get("likes");
 
