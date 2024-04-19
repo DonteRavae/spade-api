@@ -100,8 +100,6 @@ impl Mutation {
 
         let access_token_claims = AccessToken::decode(cookie.value())?;
 
-        println!("{}", cookie.value());
-
         ExpressionPost::add_reply(db, access_token_claims.sub, request).await
     }
 }
