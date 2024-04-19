@@ -7,11 +7,14 @@ use tower_cookies::{
 };
 
 use crate::{
-    auth::types::{AuthAccessRequest, Email, Password},
+    auth::models::{AuthAccessRequest, Email, Password},
     db::DbController,
 };
 
-use super::types::{AuthRegistrationRequest, AuthResponse};
+use super::{
+    models::{AuthRegistrationRequest, AuthResponse},
+    Auth,
+};
 
 pub struct Mutation;
 
@@ -28,7 +31,7 @@ impl Mutation {
 
         // Retrieve database controller from state and register user
         let db = ctx.data::<Arc<DbController>>()?;
-        let (access_token, refresh_token) = db.register(email, password).await?;
+        let (access_token, refresh_token) = Auth::register(db, email, password).await?;
 
         // Once user is registered in database, create cookies containing access and refresh tokens
         let cookies = ctx.data::<Cookies>()?;
@@ -62,7 +65,7 @@ impl Mutation {
 
         // Retrieve database controller from state and register user
         let db = ctx.data::<Arc<DbController>>()?;
-        let (access_token, refresh_token) = db.login(email, password).await?;
+        let (access_token, refresh_token) = Auth::login(db, email, password).await?;
 
         // Once user is registered in database, create cookies containing access and refresh tokens
         let cookies = ctx.data::<Cookies>()?;

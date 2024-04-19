@@ -3,7 +3,7 @@ use async_graphql::{Error, ErrorExtensions};
 use fancy_regex::Regex;
 use rand::rngs::OsRng;
 
-use super::AuthError;
+use crate::auth::AuthError;
 
 #[derive(Debug)]
 pub struct Password(String);
@@ -17,13 +17,13 @@ impl Password {
                 if result {
                     Ok(Password(password))
                 } else {
-                    Err(AuthError::ValidationError(
-                        "Please enter a valid email or password".to_string(),
+                    Err(
+                        AuthError::BadRequest("Please enter a valid email or password".to_string())
+                            .extend_with(|_, e| e.set("code", 400)),
                     )
-                    .extend_with(|_, e| e.set("code", 400)))
                 }
             }
-            Err(_) => Err(AuthError::ValidationError(
+            Err(_) => Err(AuthError::ServerError(
                 "There seems to be an error on our end. Please try again.".to_string(),
             )
             .extend_with(|_, e| e.set("code", 500))),

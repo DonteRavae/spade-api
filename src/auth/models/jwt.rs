@@ -4,6 +4,8 @@ use chrono::{Days, Local};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 
+pub type Tokens = (AccessToken, RefreshToken);
+
 #[derive(Debug)]
 pub struct AccessToken(String);
 

@@ -8,7 +8,7 @@ use tower_cookies::{
 
 use crate::db::DbController;
 
-use super::{types::AuthResponse, AccessToken, AuthError, RefreshToken};
+use super::{models::AuthResponse, AccessToken, Auth, AuthError, RefreshToken};
 
 pub struct Query;
 
@@ -28,7 +28,7 @@ impl Query {
         let access_token = cookie.value();
         let claims = AccessToken::decode(access_token)?;
         let db = ctx.data::<Arc<DbController>>()?;
-        db.logout(&claims.sub).await?;
+        Auth::logout(db, &claims.sub).await?;
 
         // Remove cookies from cookie jar
         cookies.remove(Cookie::new("sat", ""));
@@ -41,17 +41,17 @@ impl Query {
         // Get refresh cookie from headers
         let cookies = ctx.data::<Cookies>()?;
         let Some(cookie) = cookies.get("srt") else {
-            return Err(AuthError::ServerError(
-                "It seems we have a problem. Please try again.".to_string(),
-            )
-            .extend_with(|_, e| e.set("code", 500)));
+            return Err(
+                AuthError::Unauthorized("Invalid token. Please sign in again".to_string())
+                    .extend_with(|_, e| e.set("code", 401)),
+            );
         };
 
         // Decode refresh token and if valid, issue user a new access token
         let refresh_token = cookie.value();
         let claims = RefreshToken::decode(refresh_token)?;
         let db = ctx.data::<Arc<DbController>>()?;
-        let access_token = db.refresh(&claims.sub).await?;
+        let access_token = Auth::refresh(db, &claims.sub).await?;
 
         // Create a new cookie with access token and add to cookie jar
         let access_cookie = Cookie::build(("sat", access_token.as_str().to_string()))

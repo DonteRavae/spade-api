@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use async_graphql::{http::GraphiQLSource, EmptyMutation, EmptySubscription, Schema};
+use async_graphql::{http::GraphiQLSource, EmptySubscription, Schema};
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::{
     extract::State,
@@ -15,7 +15,7 @@ mod db;
 
 pub struct ApplicationState {
     pub auth_schema: Schema<auth::Query, auth::Mutation, EmptySubscription>,
-    pub community_schema: Schema<community::Query, EmptyMutation, EmptySubscription>,
+    pub community_schema: Schema<community::Query, community::Mutation, EmptySubscription>,
 }
 
 impl ApplicationState {
@@ -29,9 +29,10 @@ impl ApplicationState {
         let auth_schema = Schema::build(auth::Query, auth::Mutation, EmptySubscription)
             .data(Arc::clone(&db))
             .finish();
-        let community_schema = Schema::build(community::Query, EmptyMutation, EmptySubscription)
-            .data(Arc::clone(&db))
-            .finish();
+        let community_schema =
+            Schema::build(community::Query, community::Mutation, EmptySubscription)
+                .data(Arc::clone(&db))
+                .finish();
 
         Arc::new(ApplicationState {
             auth_schema,
