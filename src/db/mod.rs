@@ -1,14 +1,10 @@
-use std::error::Error;
-
 use sqlx::{MySql, MySqlPool, Pool};
-
-mod auth;
-mod community;
+use std::error::Error;
 
 #[derive(Debug)]
 pub struct DbController {
-    auth_pool: Pool<MySql>,
-    community_pool: Pool<MySql>,
+    pub auth_pool: Pool<MySql>,
+    pub community_pool: Pool<MySql>,
 }
 
 impl DbController {
