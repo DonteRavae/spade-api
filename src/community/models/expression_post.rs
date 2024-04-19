@@ -73,6 +73,7 @@ impl ExpressionPost {
                 post.get("author.id"),
                 post.get("author.username"),
                 post.get("author.avatar"),
+                None,
             ),
             post.get("content_type"),
             post.get("content_value"),
@@ -113,6 +114,7 @@ impl ExpressionPost {
                 profile.get("id"),
                 profile.get("username"),
                 profile.get("avatar"),
+                None,
             ),
             content: ExpressionPostContent {
                 kind: post.content.kind,
