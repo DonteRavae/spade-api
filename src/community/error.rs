@@ -8,6 +8,7 @@ use async_graphql::ErrorExtensions;
 #[derive(Debug)]
 pub enum CommunityError {
     DuplicateProfile(String),
+    ServerError(String),
     Unauthorized,
 }
 
@@ -23,6 +24,7 @@ impl ErrorExtensions for CommunityError {
     fn extend(&self) -> async_graphql::Error {
         async_graphql::Error::new(format!("{}", self)).extend_with(|_, e| match self {
             CommunityError::DuplicateProfile(msg) => e.set("reason", msg.clone()),
+            CommunityError::ServerError(msg) => e.set("reason", msg.clone()),
             CommunityError::Unauthorized => e.set("code", 401),
         })
     }

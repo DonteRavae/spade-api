@@ -1,9 +1,12 @@
 use crate::{community::CommunityError, db::DbController};
 use async_graphql::{Error, ErrorExtensions, InputObject, SimpleObject};
 use sqlx::{FromRow, Row};
-use uuid::Uuid;
+use ulid::Ulid;
 
-use super::user_profile::UserProfile;
+use super::{
+    reply::{NewReplyRequest, Reply},
+    user_profile::UserProfile,
+};
 
 #[derive(Debug, FromRow, SimpleObject, InputObject)]
 #[graphql(input_name = "NewExpressionPostContent")]
@@ -95,7 +98,7 @@ impl ExpressionPost {
             }));
         };
 
-        let post_id = Uuid::new_v4().to_string();
+        let post_id = Ulid::new().to_string();
         sqlx::query("INSERT INTO expression_posts(id, title, subtitle, author, content_type, content_value) VALUES (?, ?, ?, ?, ?, ?)")
             .bind(&post_id)
             .bind(&post.title)
@@ -144,6 +147,44 @@ impl ExpressionPost {
             .execute(&db.community_pool)
             .await?;
         Ok(())
+    }
+
+    pub async fn add_reply(
+        db: &DbController,
+        author: String,
+        request: NewReplyRequest,
+    ) -> Result<Reply, Error> {
+        let reply_id = Ulid::new().to_string();
+        if sqlx::query("INSERT INTO replies(id, author, parent, content) VALUES(?, ?, ?, ?)")
+            .bind(&reply_id)
+            .bind(&author)
+            .bind(&request.parent)
+            .bind(&request.content)
+            .execute(&db.community_pool)
+            .await
+            .is_err()
+        {
+            return Err(CommunityError::ServerError(
+                "Seems there was an error adding your request. Please try again.".to_string(),
+            )
+            .extend_with(|_, e| e.set("code", 500)));
+        }
+
+        let user_profile = UserProfile::get_by_id(db, author).await?;
+
+        let row = sqlx::query("SELECT created_at, last_modified FROM replies WHERE id = ?")
+            .bind(&reply_id)
+            .fetch_one(&db.community_pool)
+            .await?;
+
+        Ok(Reply::new(
+            reply_id,
+            user_profile,
+            request.parent,
+            request.content,
+            row.get("created_at"),
+            row.get("last_modified"),
+        ))
     }
 }
 

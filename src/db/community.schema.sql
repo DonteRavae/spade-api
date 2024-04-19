@@ -6,7 +6,7 @@ CREATE TABLE user_profiles(
 );
 
 CREATE TABLE expression_posts(
-    id VARCHAR(255) PRIMARY KEY,
+    id VARCHAR(100) PRIMARY KEY,
     title TEXT NOT NULL,
     subtitle TEXT,
     author VARCHAR(100) NOT NULL,
@@ -20,6 +20,7 @@ CREATE TABLE expression_posts(
 CREATE TABLE replies (
     id VARCHAR(100) PRIMARY KEY,
     author VARCHAR(100) NOT NULL,
+    parent VARCHAR(100) NOT NULL,
     content TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

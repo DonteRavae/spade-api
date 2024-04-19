@@ -6,13 +6,16 @@ use tower_cookies::Cookies;
 use crate::{
     auth::{AccessToken, AuthError},
     community::{
-        models::expression_post::NewExpressionPost,
+        models::{expression_post::NewExpressionPost, reply::Reply},
         user_profile::{NewProfileRequest, UserProfile},
     },
     db::DbController,
 };
 
-use super::models::expression_post::{ExpressionPost, UpdateLikesRequest};
+use super::models::{
+    expression_post::{ExpressionPost, UpdateLikesRequest},
+    reply::NewReplyRequest,
+};
 
 pub struct Mutation;
 
@@ -23,6 +26,7 @@ impl Mutation {
         ctx: &Context<'_>,
         request: NewProfileRequest,
     ) -> Result<UserProfile, Error> {
+        // Check if user is authenticated
         let Some(cookie) = ctx.data::<Cookies>()?.get("sat") else {
             return Err(AuthError::Unauthorized(
                 "Please log in to create a user profile.".to_string(),
@@ -42,6 +46,7 @@ impl Mutation {
         ctx: &Context<'_>,
         post: NewExpressionPost,
     ) -> Result<ExpressionPost, Error> {
+        // Check if user is authenticated
         let Some(cookie) = ctx.data::<Cookies>()?.get("sat") else {
             return Err(
                 AuthError::Unauthorized("Please log in to create a new post.".to_string())
@@ -61,6 +66,7 @@ impl Mutation {
         ctx: &Context<'_>,
         request: UpdateLikesRequest,
     ) -> Result<bool, Error> {
+        // Check if user is authenticated
         let Some(cookie) = ctx.data::<Cookies>()?.get("sat") else {
             return Err(
                 AuthError::Unauthorized("Please log in to like content.".to_string())
@@ -77,5 +83,25 @@ impl Mutation {
         Ok(true)
     }
 
-    
+    pub async fn reply_to_expression(
+        &self,
+        ctx: &Context<'_>,
+        request: NewReplyRequest,
+    ) -> Result<Reply, Error> {
+        // Check if user is authenticated
+        let Some(cookie) = ctx.data::<Cookies>()?.get("sat") else {
+            return Err(
+                AuthError::Unauthorized("Please log in to comment.".to_string())
+                    .extend_with(|_, e| e.set("code", 401)),
+            );
+        };
+
+        let db = ctx.data::<Arc<DbController>>()?;
+
+        let access_token_claims = AccessToken::decode(cookie.value())?;
+
+        println!("{}", cookie.value());
+
+        ExpressionPost::add_reply(db, access_token_claims.sub, request).await
+    }
 }

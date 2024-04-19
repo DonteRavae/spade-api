@@ -3,7 +3,7 @@ use sqlx::{types::Json, FromRow, Row};
 
 use crate::{community::CommunityError, db::DbController};
 
-#[derive(Debug, FromRow, SimpleObject, InputObject)]
+#[derive(Debug, FromRow, SimpleObject, InputObject, Default)]
 pub struct UserProfile {
     id: String,
     username: String,
