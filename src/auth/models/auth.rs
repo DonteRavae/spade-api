@@ -7,9 +7,7 @@ use uuid::Uuid;
 use crate::{auth::AuthError, db::DbController};
 
 use super::{
-    email::Email,
-    jwt::{AccessToken, RefreshToken, Tokens},
-    Password,
+    email::Email, jwt::{AccessToken, RefreshToken, Tokens}, password, Password
 };
 
 #[derive(Debug, FromRow)]
@@ -163,6 +161,62 @@ impl Auth {
 
         let auth_id: &str = auth.get("id");
         Ok(AccessToken::new(auth_id)?)
+    }
+
+    pub async fn update_email(
+        db: &DbController,
+        email: Email,
+        community_id: String,
+    ) -> Result<bool, Error> {
+        if sqlx::query(
+            r#"
+            UPDATE 
+                auths 
+            SET email = ? 
+            WHERE community_id = ?
+        "#,
+        )
+        .bind(email.as_str())
+        .bind(community_id)
+        .execute(&db.auth_pool)
+        .await
+        .is_err()
+        {
+            return Err(AuthError::ServerError(
+                "There was a problem updating your email. Please try again.".to_string(),
+            )
+            .extend());
+        };
+
+        Ok(true)
+    }
+
+        pub async fn update_password(
+        db: &DbController,
+        password: Password,
+        community_id: String,
+    ) -> Result<bool, Error> {
+        if sqlx::query(
+            r#"
+            UPDATE 
+                auths 
+            SET hash = ? 
+            WHERE community_id = ?
+        "#,
+        )
+        .bind(password.hash()?)
+        .bind(community_id)
+        .execute(&db.auth_pool)
+        .await
+        .is_err()
+        {
+            return Err(AuthError::ServerError(
+                "There was a problem updating your password. Please try again.".to_string(),
+            )
+            .extend());
+        };
+
+        Ok(true)
     }
 }
 

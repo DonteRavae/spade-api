@@ -13,7 +13,7 @@ use crate::{
 
 use super::{
     models::{AuthRegistrationRequest, AuthResponse},
-    Auth,
+    AccessToken, Auth, AuthError,
 };
 
 pub struct Mutation;
@@ -86,5 +86,47 @@ impl Mutation {
         cookies.add(refresh_cookie);
 
         Ok(AuthResponse::new(true, None))
+    }
+
+    async fn update_email(&self, ctx: &Context<'_>, email: String) -> Result<bool, Error> {
+        // Validate input
+        let email = Email::parse(email)?;
+
+        // Update email in database
+        let Some(cookie) = ctx.data::<Cookies>()?.get("sat") else {
+            return Err(
+                AuthError::Unauthorized("Please log in to update email.".to_string())
+                    .extend_with(|_, e| e.set("code", 401)),
+            );
+        };
+
+        let community_id = AccessToken::decode(cookie.value())?.sub;
+
+        let db = ctx.data::<Arc<DbController>>()?;
+
+        Ok(Auth::update_email(db, email, community_id).await?)
+    }
+
+    async fn update_password(
+        &self,
+        ctx: &Context<'_>,
+        new_password: String,
+    ) -> Result<bool, Error> {
+        // Validate input
+        let new_password = Password::parse(new_password)?;
+
+        // Update email in database
+        let Some(cookie) = ctx.data::<Cookies>()?.get("sat") else {
+            return Err(
+                AuthError::Unauthorized("Please log in to update password.".to_string())
+                    .extend_with(|_, e| e.set("code", 401)),
+            );
+        };
+
+        let community_id = AccessToken::decode(cookie.value())?.sub;
+
+        let db = ctx.data::<Arc<DbController>>()?;
+
+        Ok(Auth::update_password(db, new_password, community_id).await?)
     }
 }
