@@ -4,10 +4,12 @@ use sqlx::{FromRow, Row};
 use ulid::Ulid;
 use uuid::Uuid;
 
-use crate::{auth::AuthError, db::DbController};
+use crate::{auth::AuthError, community::user_profile::UserProfile, db::DbController};
 
 use super::{
-    email::Email, jwt::{AccessToken, RefreshToken, Tokens}, password, Password
+    email::Email,
+    jwt::{AccessToken, RefreshToken, Tokens},
+    password, Password,
 };
 
 #[derive(Debug, FromRow)]
@@ -191,7 +193,7 @@ impl Auth {
         Ok(true)
     }
 
-        pub async fn update_password(
+    pub async fn update_password(
         db: &DbController,
         password: Password,
         community_id: String,
@@ -215,6 +217,29 @@ impl Auth {
             )
             .extend());
         };
+
+        Ok(true)
+    }
+
+    pub async fn delete(db: &DbController, community_id: String) -> Result<bool, Error> {
+        let mut tx = db.auth_pool.begin().await?;
+
+        if sqlx::query("DELETE FROM auths WHERE community_id = ?")
+            .bind(&community_id)
+            .execute(&mut *tx)
+            .await
+            .is_err()
+        {
+            // Return error. Transaction will rollback once it's out of scope and the transaction is dropped
+            return Err(AuthError::ServerError(
+                "There seems to be an issue on our end. Please try again.".to_string(),
+            )
+            .extend());
+        }
+
+        UserProfile::delete(db, community_id).await?;
+
+        tx.commit().await?;
 
         Ok(true)
     }

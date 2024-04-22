@@ -1,5 +1,5 @@
 use async_graphql::{Error, ErrorExtensions, InputObject, SimpleObject};
-use sqlx::{types::Json, FromRow, Row};
+use sqlx::{types::Json, FromRow, MySql, Row, Transaction};
 
 use crate::{community::CommunityError, db::DbController};
 
@@ -97,6 +97,23 @@ impl UserProfile {
             profile.get("avatar"),
             likes,
         ))
+    }
+
+    pub async fn delete(db: &DbController, id: String) -> Result<bool, Error> {
+        let mut tx = db.community_pool.begin().await?;
+        
+        sqlx::query("DELETE FROM user_profiles WHERE id = ?")
+            .bind(&id)
+            .execute(&mut *tx)
+            .await?;
+
+        sqlx::query("DELETE FROM likes WHERE author = ?")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        Ok(true)
     }
 }
 

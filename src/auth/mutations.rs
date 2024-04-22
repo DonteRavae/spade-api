@@ -115,7 +115,7 @@ impl Mutation {
         // Validate input
         let new_password = Password::parse(new_password)?;
 
-        // Update email in database
+        // Update password in database
         let Some(cookie) = ctx.data::<Cookies>()?.get("sat") else {
             return Err(
                 AuthError::Unauthorized("Please log in to update password.".to_string())
@@ -128,5 +128,20 @@ impl Mutation {
         let db = ctx.data::<Arc<DbController>>()?;
 
         Ok(Auth::update_password(db, new_password, community_id).await?)
+    }
+
+    async fn permanent_delete(&self, ctx: &Context<'_>) -> Result<bool, Error> {
+        let Some(cookie) = ctx.data::<Cookies>()?.get("sat") else {
+            return Err(
+                AuthError::Unauthorized("Please log in to update password.".to_string())
+                    .extend_with(|_, e| e.set("code", 401)),
+            );
+        };
+
+        let community_id = AccessToken::decode(cookie.value())?.sub;
+
+        let db = ctx.data::<Arc<DbController>>()?;
+
+        Ok(Auth::delete(db, community_id).await?)
     }
 }
