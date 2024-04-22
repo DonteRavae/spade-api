@@ -9,7 +9,7 @@ use crate::{auth::AuthError, community::user_profile::UserProfile, db::DbControl
 use super::{
     email::Email,
     jwt::{AccessToken, RefreshToken, Tokens},
-    password, Password,
+    Password,
 };
 
 #[derive(Debug, FromRow)]
