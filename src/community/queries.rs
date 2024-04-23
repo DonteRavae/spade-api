@@ -28,8 +28,6 @@ impl Query {
 
         let db = ctx.data::<Arc<DbController>>()?;
 
-        println!("{}", access_token_claims.sub);
-
         UserProfile::get_by_id(db, access_token_claims.sub).await
     }
 

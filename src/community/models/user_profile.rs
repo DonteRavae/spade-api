@@ -1,21 +1,24 @@
 use async_graphql::{Error, ErrorExtensions, InputObject, SimpleObject};
-use sqlx::{FromRow, Row};
+use serde::{Deserialize, Serialize};
+use sqlx::{types::Json, FromRow, Row};
 
 use crate::{community::CommunityError, db::DbController};
 
-#[derive(Debug, FromRow, SimpleObject, InputObject, Default)]
+#[derive(Debug, FromRow, SimpleObject, InputObject, Default, Serialize, Deserialize)]
 pub struct UserProfile {
     pub id: String,
     pub username: String,
     pub avatar: String,
+    pub likes: Vec<String>,
 }
 
 impl UserProfile {
-    pub fn new(id: String, username: String, avatar: String) -> Self {
+    pub fn new(id: String, username: String, avatar: String, likes: Vec<String>) -> Self {
         Self {
             id,
             username,
             avatar,
+            likes,
         }
     }
 
@@ -56,7 +59,7 @@ impl UserProfile {
         .execute(&db.community_pool)
         .await?;
 
-        Ok(Self::new(id, details.username, details.avatar))
+        Ok(Self::new(id, details.username, details.avatar, vec![]))
     }
 
     pub async fn get_by_id(db: &DbController, id: String) -> Result<Self, Error> {
@@ -65,7 +68,10 @@ impl UserProfile {
             SELECT 
                 id, 
                 username, 
-                avatar
+                avatar,
+                (
+                    SELECT JSON_ARRAYAGG(parent_id) FROM likes WHERE author = id
+                ) AS likes
             FROM user_profiles 
             WHERE id = ? 
         "#,
@@ -79,10 +85,17 @@ impl UserProfile {
             }));
         };
 
+        let likes: Option<Json<Vec<String>>> = profile.get("likes");
+
         Ok(Self::new(
             profile.get("id"),
             profile.get("username"),
             profile.get("avatar"),
+            if likes.is_some() {
+                likes.unwrap().0
+            } else {
+                vec![]
+            },
         ))
     }
 

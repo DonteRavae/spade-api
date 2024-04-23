@@ -1,7 +1,8 @@
 use crate::{community::CommunityError, db::DbController};
-use async_graphql::{Error, ErrorExtensions, InputObject, Json, SimpleObject};
+use async_graphql::{Error, ErrorExtensions, InputObject, SimpleObject};
 use chrono::{DateTime, Utc};
-use sqlx::{FromRow, Row};
+use serde::{Deserialize, Serialize};
+use sqlx::{types::Json, FromRow, Row};
 use ulid::Ulid;
 
 use super::{
@@ -9,14 +10,14 @@ use super::{
     user_profile::UserProfile,
 };
 
-#[derive(Debug, FromRow, SimpleObject, InputObject)]
+#[derive(Debug, FromRow, SimpleObject, InputObject, Deserialize, Serialize)]
 #[graphql(input_name = "NewExpressionPostContent")]
 struct ExpressionPostContent {
     kind: String,
     value: String,
 }
 
-#[derive(Debug, FromRow, SimpleObject)]
+#[derive(Debug, FromRow, SimpleObject, Serialize, Deserialize)]
 pub struct ExpressionPost {
     id: String,
     title: String,
@@ -69,7 +70,10 @@ impl ExpressionPost {
                 post.content_type AS content_type, 
                 post.content_value AS content_value, 
                 post.created_at AS created_at, 
-                post.last_modified AS last_modified
+                post.last_modified AS last_modified,
+                (
+                    SELECT JSON_ARRAYAGG(parent_id) FROM likes WHERE author = author
+                ) AS likes
             FROM expression_posts AS post
             JOIN user_profiles AS profile ON profile.id = post.author
             WHERE post.id = ?
@@ -79,6 +83,8 @@ impl ExpressionPost {
         .fetch_one(&db.community_pool)
         .await?;
 
+        let likes: Option<Json<Vec<String>>> = post.get("likes");
+
         Ok(Self::new(
             post.get("id"),
             post.get("title"),
@@ -87,6 +93,11 @@ impl ExpressionPost {
                 post.get("author_id"),
                 post.get("author_username"),
                 post.get("author_avatar"),
+                if likes.is_some() {
+                    likes.unwrap().0
+                } else {
+                    vec![]
+                },
             ),
             post.get("content_type"),
             post.get("content_value"),
@@ -143,7 +154,7 @@ impl ExpressionPost {
             id: post_id,
             title: post.title,
             subtitle: post.subtitle,
-            author: UserProfile::new(profile.id, profile.username, profile.avatar),
+            author: UserProfile::new(profile.id, profile.username, profile.avatar, profile.likes),
             content: ExpressionPostContent {
                 kind: post.content.kind,
                 value: post.content.value,
@@ -276,6 +287,7 @@ impl ExpressionPost {
                         x.get("author_id"),
                         x.get("author_username"),
                         x.get("author_avatar"),
+                        vec![],
                     ),
                     x.get("content_type"),
                     x.get("content_value"),
