@@ -24,6 +24,8 @@ pub struct ExpressionPost {
     subtitle: Option<String>,
     author: UserProfile,
     content: ExpressionPostContent,
+    replies: Vec<Reply>,
+    likes: i32,
     created_at: DateTime<Utc>,
     last_modified: DateTime<Utc>,
 }
@@ -36,6 +38,8 @@ impl ExpressionPost {
         author: UserProfile,
         content_type: String,
         content_value: String,
+        replies: Vec<Reply>,
+        likes: i32,
         created_at: DateTime<Utc>,
         last_modified: DateTime<Utc>,
     ) -> Self {
@@ -52,6 +56,8 @@ impl ExpressionPost {
                 kind: content_type,
                 value: content_value,
             },
+            replies,
+            likes,
             created_at,
             last_modified,
         }
@@ -72,7 +78,7 @@ impl ExpressionPost {
                 post.created_at AS created_at, 
                 post.last_modified AS last_modified,
                 (
-                    SELECT JSON_ARRAYAGG(parent_id) FROM likes WHERE author = author
+                    SELECT IFNULL(COUNT(parent_id), 0) FROM likes WHERE parent = id
                 ) AS likes
             FROM expression_posts AS post
             JOIN user_profiles AS profile ON profile.id = post.author
@@ -83,24 +89,58 @@ impl ExpressionPost {
         .fetch_one(&db.community_pool)
         .await?;
 
-        let likes: Option<Json<Vec<String>>> = post.get("likes");
+        let post_id: String = post.get("id");
+
+        let replies: Vec<Reply> = sqlx::query(
+            r#"
+            SELECT
+                reply.id AS id,
+                profile.id AS author_id,
+                profile.username AS author_username,
+                profile.avatar AS author_avatar,
+                reply.content AS content,
+                reply.created_at AS created_at,
+                reply.last_modified AS last_modified
+            FROM replies AS reply
+            JOIN user_profiles AS profile ON profile.id = reply.author
+            WHERE parent = ?
+        "#,
+        )
+        .bind(&post_id)
+        .fetch_all(&db.community_pool)
+        .await?
+        .iter()
+        .map(|reply| {
+            Reply::new(
+                reply.get("id"),
+                UserProfile::new(
+                    reply.get("author_id"),
+                    reply.get("author_username"),
+                    reply.get("author_avatar"),
+                    vec![],
+                ),
+                post_id.clone(),
+                reply.get("content"),
+                reply.get("created_at"),
+                reply.get("last_modified"),
+            )
+        })
+        .collect();
 
         Ok(Self::new(
-            post.get("id"),
+            post_id,
             post.get("title"),
             post.try_get("subtitle").unwrap_or_else(|_| String::new()),
             UserProfile::new(
                 post.get("author_id"),
                 post.get("author_username"),
                 post.get("author_avatar"),
-                if likes.is_some() {
-                    likes.unwrap().0
-                } else {
-                    vec![]
-                },
+                vec![],
             ),
             post.get("content_type"),
             post.get("content_value"),
+            replies,
+            post.get("likes"),
             post.get("created_at"),
             post.get("last_modified"),
         ))
@@ -159,6 +199,8 @@ impl ExpressionPost {
                 kind: post.content.kind,
                 value: post.content.value,
             },
+            replies: vec![],
+            likes: 0,
             created_at: row.get("created_at"),
             last_modified: row.get("last_modified"),
         })
@@ -291,6 +333,8 @@ impl ExpressionPost {
                     ),
                     x.get("content_type"),
                     x.get("content_value"),
+                    vec![],
+                    0,
                     x.get("created_at"),
                     x.get("last_modified"),
                 )
