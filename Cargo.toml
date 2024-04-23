@@ -10,7 +10,7 @@ argon2 = "0.5.3"
 async-graphql = { version = "7.0.3", features = ["chrono"] }
 async-graphql-axum = "7.0.3"
 axum = { version = "0.7.4" }
-chrono = "0.4.35"
+chrono = { version = "0.4.35", features = ["serde"] }
 dotenv = "0.15.0"
 fancy-regex = "0.13.0"
 futures = "0.3.30"
