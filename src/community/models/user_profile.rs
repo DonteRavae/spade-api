@@ -1,5 +1,5 @@
 use async_graphql::{Error, ErrorExtensions, InputObject, SimpleObject};
-use sqlx::{types::Json, FromRow, Row};
+use sqlx::{FromRow, Row};
 
 use crate::{community::CommunityError, db::DbController};
 
@@ -8,16 +8,14 @@ pub struct UserProfile {
     pub id: String,
     pub username: String,
     pub avatar: String,
-    pub likes: Option<Vec<String>>,
 }
 
 impl UserProfile {
-    pub fn new(id: String, username: String, avatar: String, likes: Option<Vec<String>>) -> Self {
+    pub fn new(id: String, username: String, avatar: String) -> Self {
         Self {
             id,
             username,
             avatar,
-            likes,
         }
     }
 
@@ -58,7 +56,7 @@ impl UserProfile {
         .execute(&db.community_pool)
         .await?;
 
-        Ok(Self::new(id, details.username, details.avatar, None))
+        Ok(Self::new(id, details.username, details.avatar))
     }
 
     pub async fn get_by_id(db: &DbController, id: String) -> Result<Self, Error> {
@@ -67,15 +65,9 @@ impl UserProfile {
             SELECT 
                 id, 
                 username, 
-                avatar, 
-                (
-                    SELECT 
-                        JSON_ARRAYAGG(likes.parent_id) 
-                    FROM likes
-                ) as likes 
+                avatar
             FROM user_profiles 
             WHERE id = ? 
-            GROUP BY user_profiles.id
         "#,
         )
         .bind(id)
@@ -87,15 +79,10 @@ impl UserProfile {
             }));
         };
 
-        let likes: Json<Option<Vec<String>>> = profile.get("likes");
-
-        let likes = if likes.0.is_some() { likes.0 } else { None };
-
         Ok(Self::new(
             profile.get("id"),
             profile.get("username"),
             profile.get("avatar"),
-            likes,
         ))
     }
 

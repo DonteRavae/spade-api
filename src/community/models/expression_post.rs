@@ -1,5 +1,5 @@
 use crate::{community::CommunityError, db::DbController};
-use async_graphql::{Error, ErrorExtensions, InputObject, SimpleObject};
+use async_graphql::{Error, ErrorExtensions, InputObject, Json, SimpleObject};
 use chrono::{DateTime, Utc};
 use sqlx::{FromRow, Row};
 use ulid::Ulid;
@@ -60,25 +60,19 @@ impl ExpressionPost {
         let post = sqlx::query(
             r#"
             SELECT
-                id, 
-                title, 
-                subtitle, 
-                JSON_OBJECT
-                    (
-                        'id', profile.id,
-                        'username', profile.username,
-                        'avatar', profile.avatar
-                    ) 
-                AS author, 
-                content_type, 
-                content_value ,
-                created_at, 
-                last_modified
-            FROM expression_posts 
-            JOIN user_profiles 
-                AS profile 
-                ON expressions_post.author = profile.id 
-            WHERE id = ?
+                post.id AS id, 
+                post.title AS title, 
+                post.subtitle AS subtitle, 
+                profile.id AS author_id, 
+                profile.username AS author_username, 
+                profile.avatar AS author_avatar, 
+                post.content_type AS content_type, 
+                post.content_value AS content_value, 
+                post.created_at AS created_at, 
+                post.last_modified AS last_modified
+            FROM expression_posts AS post
+            JOIN user_profiles AS profile ON profile.id = post.author
+            WHERE post.id = ?
         "#,
         )
         .bind(id)
@@ -88,12 +82,11 @@ impl ExpressionPost {
         Ok(Self::new(
             post.get("id"),
             post.get("title"),
-            post.get("subtitle"),
+            post.try_get("subtitle").unwrap_or_else(|_| String::new()),
             UserProfile::new(
-                post.get("author.id"),
-                post.get("author.username"),
-                post.get("author.avatar"),
-                None,
+                post.get("author_id"),
+                post.get("author_username"),
+                post.get("author_avatar"),
             ),
             post.get("content_type"),
             post.get("content_value"),
@@ -133,16 +126,24 @@ impl ExpressionPost {
         .execute(&db.community_pool)
         .await?;
 
-        let row = sqlx::query("SELECT created_at, last_modified FROM replies WHERE id = ?")
-            .bind(&post_id)
-            .fetch_one(&db.community_pool)
-            .await?;
+        let row = sqlx::query(
+            r#"
+            SELECT 
+                created_at, 
+                last_modified 
+            FROM expression_posts 
+            WHERE id = ?
+        "#,
+        )
+        .bind(&post_id)
+        .fetch_one(&db.community_pool)
+        .await?;
 
         Ok(ExpressionPost {
             id: post_id,
             title: post.title,
             subtitle: post.subtitle,
-            author: UserProfile::new(profile.id, profile.username, profile.avatar, profile.likes),
+            author: UserProfile::new(profile.id, profile.username, profile.avatar),
             content: ExpressionPostContent {
                 kind: post.content.kind,
                 value: post.content.value,
@@ -215,10 +216,18 @@ impl ExpressionPost {
 
         let user_profile = UserProfile::get_by_id(db, author).await?;
 
-        let row = sqlx::query("SELECT created_at, last_modified FROM replies WHERE id = ?")
-            .bind(&reply_id)
-            .fetch_one(&db.community_pool)
-            .await?;
+        let row = sqlx::query(
+            r#"
+            SELECT 
+                created_at, 
+                last_modified 
+            FROM replies 
+            WHERE id = ?
+        "#,
+        )
+        .bind(&reply_id)
+        .fetch_one(&db.community_pool)
+        .await?;
 
         Ok(Reply::new(
             reply_id,
@@ -228,6 +237,55 @@ impl ExpressionPost {
             row.get("created_at"),
             row.get("last_modified"),
         ))
+    }
+
+    pub async fn get_recent_posts(db: &DbController, limit: u16) -> Result<Vec<Self>, Error> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                post.id AS id, 
+                post.title AS title, 
+                post.subtitle AS subtitle, 
+                profile.id AS author_id, 
+                profile.username AS author_username, 
+                profile.avatar AS author_avatar, 
+                post.content_type AS content_type, 
+                post.content_value AS content_value, 
+                post.created_at AS created_at, 
+                post.last_modified AS last_modified
+            FROM expression_posts AS post
+            JOIN user_profiles AS profile ON profile.id = post.author
+            WHERE post.created_at > now() - interval 7 day
+            GROUP BY post.id
+            ORDER BY post.created_at
+            DESC LIMIT ?
+        "#,
+        )
+        .bind(limit)
+        .fetch_all(&db.community_pool)
+        .await?;
+
+        let posts: Vec<ExpressionPost> = rows
+            .iter()
+            .map(|x| {
+                ExpressionPost::new(
+                    x.get("id"),
+                    x.get("title"),
+                    x.try_get("subtitle").unwrap_or_else(|_| String::new()),
+                    UserProfile::new(
+                        x.get("author_id"),
+                        x.get("author_username"),
+                        x.get("author_avatar"),
+                    ),
+                    x.get("content_type"),
+                    x.get("content_value"),
+                    x.get("created_at"),
+                    x.get("last_modified"),
+                )
+            })
+            .collect();
+
+        Ok(posts)
     }
 }
 

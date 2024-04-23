@@ -28,6 +28,8 @@ impl Query {
 
         let db = ctx.data::<Arc<DbController>>()?;
 
+        println!("{}", access_token_claims.sub);
+
         UserProfile::get_by_id(db, access_token_claims.sub).await
     }
 
@@ -38,5 +40,19 @@ impl Query {
     ) -> Result<ExpressionPost, Error> {
         let db = ctx.data::<Arc<DbController>>()?;
         ExpressionPost::get_by_id(db, post_id).await
+    }
+
+    async fn get_recent_posts(
+        &self,
+        ctx: &Context<'_>,
+        mut limit: Option<u16>,
+    ) -> Result<Vec<ExpressionPost>, Error> {
+        if limit.is_some() && limit == Some(0) || limit.is_none() {
+            limit = Some(20);
+        }
+
+        let db = ctx.data::<Arc<DbController>>()?;
+
+        Ok(ExpressionPost::get_recent_posts(db, limit.unwrap()).await?)
     }
 }
