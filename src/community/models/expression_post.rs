@@ -2,7 +2,7 @@ use crate::{community::CommunityError, db::DbController};
 use async_graphql::{Error, ErrorExtensions, InputObject, SimpleObject};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{types::Json, FromRow, Row};
+use sqlx::{FromRow, Row};
 use ulid::Ulid;
 
 use super::{
@@ -25,6 +25,7 @@ pub struct ExpressionPost {
     author: UserProfile,
     content: ExpressionPostContent,
     replies: Vec<Reply>,
+    reply_count: i32,
     likes: i32,
     created_at: DateTime<Utc>,
     last_modified: DateTime<Utc>,
@@ -39,6 +40,7 @@ impl ExpressionPost {
         content_type: String,
         content_value: String,
         replies: Vec<Reply>,
+        reply_count: i32,
         likes: i32,
         created_at: DateTime<Utc>,
         last_modified: DateTime<Utc>,
@@ -57,6 +59,7 @@ impl ExpressionPost {
                 value: content_value,
             },
             replies,
+            reply_count,
             likes,
             created_at,
             last_modified,
@@ -77,12 +80,15 @@ impl ExpressionPost {
                 post.content_value AS content_value, 
                 post.created_at AS created_at, 
                 post.last_modified AS last_modified,
+                IFNULL(COUNT(reply.id), 0) as reply_count,
                 (
-                    SELECT IFNULL(COUNT(parent_id), 0) FROM likes WHERE parent = id
+                    SELECT IFNULL(COUNT(parent_id), 0) FROM likes WHERE parent = post.id
                 ) AS likes
             FROM expression_posts AS post
             JOIN user_profiles AS profile ON profile.id = post.author
+            JOIN replies AS reply ON reply.parent = post.id
             WHERE post.id = ?
+            GROUP BY post.id
         "#,
         )
         .bind(id)
@@ -140,6 +146,7 @@ impl ExpressionPost {
             post.get("content_type"),
             post.get("content_value"),
             replies,
+            post.get("reply_count"),
             post.get("likes"),
             post.get("created_at"),
             post.get("last_modified"),
@@ -200,6 +207,7 @@ impl ExpressionPost {
                 value: post.content.value,
             },
             replies: vec![],
+            reply_count: 0,
             likes: 0,
             created_at: row.get("created_at"),
             last_modified: row.get("last_modified"),
@@ -303,11 +311,13 @@ impl ExpressionPost {
                 profile.username AS author_username, 
                 profile.avatar AS author_avatar, 
                 post.content_type AS content_type, 
-                post.content_value AS content_value, 
+                post.content_value AS content_value,
+                IFNULL(COUNT(reply.parent), 0) AS reply_count, 
                 post.created_at AS created_at, 
                 post.last_modified AS last_modified
             FROM expression_posts AS post
             JOIN user_profiles AS profile ON profile.id = post.author
+            JOIN replies AS reply ON reply.parent = post.id
             WHERE post.created_at > now() - interval 7 day
             GROUP BY post.id
             ORDER BY post.created_at
@@ -334,6 +344,7 @@ impl ExpressionPost {
                     x.get("content_type"),
                     x.get("content_value"),
                     vec![],
+                    x.get("reply_count"),
                     0,
                     x.get("created_at"),
                     x.get("last_modified"),
