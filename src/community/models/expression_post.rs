@@ -1,8 +1,10 @@
+use std::vec;
+
 use crate::{community::CommunityError, db::DbController};
 use async_graphql::{Error, ErrorExtensions, InputObject, SimpleObject};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, Row};
+use sqlx::{mysql::MySqlRow, FromRow, Row};
 use ulid::Ulid;
 
 use super::{
@@ -67,7 +69,7 @@ impl ExpressionPost {
     }
 
     pub async fn get_by_id(db: &DbController, id: String) -> Result<Self, Error> {
-        let post = sqlx::query(
+        let Ok(post) = sqlx::query(
             r#"
             SELECT
                 post.id AS id, 
@@ -82,22 +84,27 @@ impl ExpressionPost {
                 post.last_modified AS last_modified,
                 IFNULL(COUNT(reply.id), 0) as reply_count,
                 (
-                    SELECT IFNULL(COUNT(parent_id), 0) FROM likes WHERE parent = post.id
+                    SELECT IFNULL(COUNT(parent_id), 0) FROM likes WHERE parent_id = post.id
                 ) AS likes
             FROM expression_posts AS post
-            JOIN user_profiles AS profile ON profile.id = post.author
-            JOIN replies AS reply ON reply.parent = post.id
+            LEFT JOIN user_profiles AS profile ON profile.id = post.author
+            LEFT JOIN replies AS reply ON reply.parent = post.id
             WHERE post.id = ?
             GROUP BY post.id
         "#,
         )
         .bind(id)
         .fetch_one(&db.community_pool)
-        .await?;
+        .await
+        else {
+            return Err(
+                CommunityError::BadRequest("Expression post does not exist.".to_string()).extend(),
+            );
+        };
 
         let post_id: String = post.get("id");
 
-        let replies: Vec<Reply> = sqlx::query(
+        let replies = sqlx::query(
             r#"
             SELECT
                 reply.id AS id,
@@ -113,10 +120,7 @@ impl ExpressionPost {
         "#,
         )
         .bind(&post_id)
-        .fetch_all(&db.community_pool)
-        .await?
-        .iter()
-        .map(|reply| {
+        .map(|reply: MySqlRow| {
             Reply::new(
                 reply.get("id"),
                 UserProfile::new(
@@ -131,7 +135,8 @@ impl ExpressionPost {
                 reply.get("last_modified"),
             )
         })
-        .collect();
+        .fetch_all(&db.community_pool)
+        .await?;
 
         Ok(Self::new(
             post_id,
