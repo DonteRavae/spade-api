@@ -4,7 +4,7 @@ use crate::{community::CommunityError, db::DbController};
 use async_graphql::{Error, ErrorExtensions, InputObject, SimpleObject};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{mysql::MySqlRow, FromRow, Row};
+use sqlx::{FromRow, Row};
 use ulid::Ulid;
 
 use super::{
@@ -69,6 +69,7 @@ impl ExpressionPost {
     }
 
     pub async fn get_by_id(db: &DbController, id: String) -> Result<Self, Error> {
+        // Get post from database
         let Ok(post) = sqlx::query(
             r#"
             SELECT
@@ -104,40 +105,15 @@ impl ExpressionPost {
 
         let post_id: String = post.get("id");
 
-        let replies = sqlx::query(
-            r#"
-            SELECT
-                reply.id AS id,
-                profile.id AS author_id,
-                profile.username AS author_username,
-                profile.avatar AS author_avatar,
-                reply.content AS content,
-                reply.created_at AS created_at,
-                reply.last_modified AS last_modified
-            FROM replies AS reply
-            JOIN user_profiles AS profile ON profile.id = reply.author
-            WHERE parent = ?
-        "#,
-        )
-        .bind(&post_id)
-        .map(|reply: MySqlRow| {
-            Reply::new(
-                reply.get("id"),
-                UserProfile::new(
-                    reply.get("author_id"),
-                    reply.get("author_username"),
-                    reply.get("author_avatar"),
-                    vec![],
-                ),
-                post_id.clone(),
-                reply.get("content"),
-                reply.get("created_at"),
-                reply.get("last_modified"),
+        // Get replies to post from database
+        let Ok(replies) = Reply::get_all_recursively(db, post_id.clone()).await else {
+            return Err(CommunityError::ServerError(
+                "Error retrieving expression post replies from database".to_string(),
             )
-        })
-        .fetch_all(&db.community_pool)
-        .await?;
+            .extend_with(|_, e| e.set("code", 500)));
+        };
 
+        // Return post
         Ok(Self::new(
             post_id,
             post.get("title"),
@@ -306,7 +282,7 @@ impl ExpressionPost {
     }
 
     pub async fn get_recent_posts(db: &DbController, limit: u16) -> Result<Vec<Self>, Error> {
-        let rows = sqlx::query(
+        let posts = sqlx::query(
             r#"
             SELECT
                 post.id AS id, 
@@ -319,10 +295,13 @@ impl ExpressionPost {
                 post.content_value AS content_value,
                 IFNULL(COUNT(reply.parent), 0) AS reply_count, 
                 post.created_at AS created_at, 
-                post.last_modified AS last_modified
+                post.last_modified AS last_modified,
+                (
+                    SELECT IFNULL(COUNT(DISTINCT parent_id), 0) FROM likes WHERE parent_id = post.id
+                ) AS likes
             FROM expression_posts AS post
-            JOIN user_profiles AS profile ON profile.id = post.author
-            JOIN replies AS reply ON reply.parent = post.id
+            LEFT JOIN user_profiles AS profile ON profile.id = post.author
+            LEFT JOIN replies AS reply ON reply.parent = post.id
             WHERE post.created_at > now() - interval 7 day
             GROUP BY post.id
             ORDER BY post.created_at
@@ -330,39 +309,188 @@ impl ExpressionPost {
         "#,
         )
         .bind(limit)
+        .map(|x| {
+            ExpressionPost::new(
+                x.get("id"),
+                x.get("title"),
+                x.try_get("subtitle").unwrap_or_else(|_| String::new()),
+                UserProfile::new(
+                    x.get("author_id"),
+                    x.get("author_username"),
+                    x.get("author_avatar"),
+                    vec![],
+                ),
+                x.get("content_type"),
+                x.get("content_value"),
+                vec![],
+                x.get("reply_count"),
+                x.get("likes"),
+                x.get("created_at"),
+                x.get("last_modified"),
+            )
+        })
         .fetch_all(&db.community_pool)
         .await?;
 
-        let posts: Vec<ExpressionPost> = rows
-            .iter()
-            .map(|x| {
-                ExpressionPost::new(
-                    x.get("id"),
-                    x.get("title"),
-                    x.try_get("subtitle").unwrap_or_else(|_| String::new()),
-                    UserProfile::new(
-                        x.get("author_id"),
-                        x.get("author_username"),
-                        x.get("author_avatar"),
-                        vec![],
-                    ),
-                    x.get("content_type"),
-                    x.get("content_value"),
+        Ok(posts)
+    }
+
+    pub async fn get_trending_posts(db: &DbController, limit: u16) -> Result<Vec<Self>, Error> {
+        // Change QUERY to find most liked within a two week span
+        let posts = sqlx::query(
+            r#"
+            SELECT
+                post.id AS id, 
+                post.title AS title, 
+                post.subtitle AS subtitle, 
+                profile.id AS author_id, 
+                profile.username AS author_username, 
+                profile.avatar AS author_avatar, 
+                post.content_type AS content_type, 
+                post.content_value AS content_value,
+                IFNULL(COUNT(reply.parent), 0) AS reply_count, 
+                post.created_at AS created_at, 
+                post.last_modified AS last_modified,
+                (
+                    SELECT IFNULL(COUNT(DISTINCT parent_id), 0) FROM likes WHERE parent_id = post.id
+                ) AS likes
+            FROM expression_posts AS post
+            LEFT JOIN user_profiles AS profile ON profile.id = post.author
+            LEFT JOIN replies AS reply ON reply.parent = post.id
+            WHERE post.created_at > now() - interval 14 day
+            GROUP BY post.id
+            ORDER BY likes
+            DESC LIMIT ?
+        "#,
+        )
+        .bind(limit)
+        .map(|x| {
+            ExpressionPost::new(
+                x.get("id"),
+                x.get("title"),
+                x.try_get("subtitle").unwrap_or_else(|_| String::new()),
+                UserProfile::new(
+                    x.get("author_id"),
+                    x.get("author_username"),
+                    x.get("author_avatar"),
                     vec![],
-                    x.get("reply_count"),
-                    0,
-                    x.get("created_at"),
-                    x.get("last_modified"),
-                )
-            })
-            .collect();
+                ),
+                x.get("content_type"),
+                x.get("content_value"),
+                vec![],
+                x.get("reply_count"),
+                x.get("likes"),
+                x.get("created_at"),
+                x.get("last_modified"),
+            )
+        })
+        .fetch_all(&db.community_pool)
+        .await?;
 
         Ok(posts)
+    }
+
+    pub async fn update_content(
+        db: &DbController,
+        request: UpdateContentRequest,
+        logged_in_user: String,
+    ) -> Result<Self, Error> {
+        let mut tx = db.community_pool.begin().await?;
+
+        let author = sqlx::query("SELECT author FROM expression_posts WHERE id = ?")
+            .bind(&logged_in_user)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+        // Check to make sure person deleting post is author
+        if author.is_none() {
+            return Err(
+                CommunityError::BadRequest("Expression post does not exist.".to_string()).extend(),
+            );
+        } else {
+            let author: String = author.unwrap().get("author");
+            if author != logged_in_user {
+                return Err(CommunityError::Unauthorized.extend_with(|_, e| {
+                    e.set(
+                        "reason",
+                        "User making request and expression post author do not match.",
+                    )
+                }));
+            }
+        }
+
+        sqlx::query("UPDATE expression_posts SET content_type = ?, content_value = ? WHERE id = ?")
+            .bind(request.content_type)
+            .bind(request.content_value)
+            .bind(&request.post_id)
+            .execute(&mut *tx)
+            .await?;
+
+        let post = Self::get_by_id(db, request.post_id).await?;
+
+        tx.commit().await?;
+
+        Ok(post)
+    }
+
+    pub async fn delete(
+        db: &DbController,
+        post_id: String,
+        logged_in_user: String,
+    ) -> Result<bool, Error> {
+        let mut tx = db.community_pool.begin().await?;
+
+        let author = sqlx::query("SELECT author FROM expression_posts WHERE id = ?")
+            .bind(&post_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+        // Check to make sure person deleting post is author
+        if author.is_none() {
+            return Err(
+                CommunityError::BadRequest("Expression post does not exist.".to_string()).extend(),
+            );
+        } else {
+            let author: String = author.unwrap().get("author");
+            if author != logged_in_user {
+                return Err(CommunityError::Unauthorized.extend_with(|_, e| {
+                    e.set(
+                        "reason",
+                        "User making request and expression post author do not match.",
+                    )
+                }));
+            }
+        }
+
+        // Delete post
+        if sqlx::query("DELETE FROM expression_posts WHERE id = ?")
+            .bind(&post_id)
+            .execute(&mut *tx)
+            .await
+            .is_err()
+        {
+            return Err(CommunityError::ServerError(
+                "There seems to be an issue deleting this post. Please try again.".to_string(),
+            )
+            .extend_with(|_, e| e.set("code", 500)));
+        }
+
+        // Delete all replies associated with post
+        if Reply::delete_all_from_post(db, post_id).await.is_err() {
+            return Err(CommunityError::ServerError(
+                "There seems to be an issue deleting this post. Please try again.".to_string(),
+            )
+            .extend_with(|_, e| e.set("code", 500)));
+        };
+
+        tx.commit().await?;
+        Ok(true)
     }
 }
 
 /********** REQUEST OBJECTS **********/
 
+/****** ADD VALIDATION CHECKS ******/
 #[derive(InputObject, Debug)]
 pub struct NewExpressionPost {
     title: String,
@@ -370,8 +498,17 @@ pub struct NewExpressionPost {
     content: ExpressionPostContent,
 }
 
+/****** ADD VALIDATION CHECKS ******/
 #[derive(InputObject, Debug)]
 pub struct UpdateLikesRequest {
     pub post_id: String,
     pub update_value: u8,
+}
+
+/****** ADD VALIDATION CHECKS ******/
+#[derive(InputObject, Debug)]
+pub struct UpdateContentRequest {
+    post_id: String,
+    content_type: String,
+    content_value: String,
 }

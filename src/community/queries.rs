@@ -53,4 +53,18 @@ impl Query {
 
         Ok(ExpressionPost::get_recent_posts(db, limit.unwrap()).await?)
     }
+
+    async fn get_trending_posts(
+        &self,
+        ctx: &Context<'_>,
+        mut limit: Option<u16>,
+    ) -> Result<Vec<ExpressionPost>, Error> {
+        if limit.is_some() && limit == Some(0) || limit.is_none() {
+            limit = Some(20);
+        }
+
+        let db = ctx.data::<Arc<DbController>>()?;
+
+        Ok(ExpressionPost::get_trending_posts(db, limit.unwrap()).await?)
+    }
 }

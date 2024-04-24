@@ -119,6 +119,7 @@ impl UserProfile {
 
 /********** REQUEST OBJECTS **********/
 
+/****** ADD VALIDATION CHECKS ******/
 #[derive(InputObject, Debug)]
 pub struct NewProfileRequest {
     pub username: String,

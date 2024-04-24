@@ -13,7 +13,7 @@ use crate::{
 };
 
 use super::models::{
-    expression_post::{ExpressionPost, UpdateLikesRequest},
+    expression_post::{ExpressionPost, UpdateContentRequest, UpdateLikesRequest},
     reply::NewReplyRequest,
 };
 
@@ -61,6 +61,26 @@ impl Mutation {
         ExpressionPost::save(db, post, access_token_claims.sub).await
     }
 
+    pub async fn update_expression_post(
+        &self,
+        ctx: &Context<'_>,
+        request: UpdateContentRequest,
+    ) -> Result<ExpressionPost, Error> {
+        // Check if user is authenticated
+        let Some(cookie) = ctx.data::<Cookies>()?.get("sat") else {
+            return Err(
+                AuthError::Unauthorized("Please log in to update content.".to_string())
+                    .extend_with(|_, e| e.set("code", 401)),
+            );
+        };
+
+        let logged_in_user = AccessToken::decode(cookie.value())?.sub;
+
+        let db = ctx.data::<Arc<DbController>>()?;
+
+        Ok(ExpressionPost::update_content(db, request, logged_in_user).await?)
+    }
+
     pub async fn update_likes(
         &self,
         ctx: &Context<'_>,
@@ -101,5 +121,25 @@ impl Mutation {
         let access_token_claims = AccessToken::decode(cookie.value())?;
 
         ExpressionPost::add_reply(db, access_token_claims.sub, request).await
+    }
+
+    pub async fn delete_expression_post(
+        &self,
+        ctx: &Context<'_>,
+        post_id: String,
+    ) -> Result<bool, Error> {
+        // Check if user is authenticated
+        let Some(cookie) = ctx.data::<Cookies>()?.get("sat") else {
+            return Err(
+                AuthError::Unauthorized("Please log in to comment.".to_string())
+                    .extend_with(|_, e| e.set("code", 401)),
+            );
+        };
+
+        let logged_in_user = AccessToken::decode(cookie.value())?.sub;
+
+        let db = ctx.data::<Arc<DbController>>()?;
+
+        Ok(ExpressionPost::delete(db, post_id, logged_in_user).await?)
     }
 }
