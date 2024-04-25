@@ -24,6 +24,7 @@ pub struct ExpressionPost {
     id: String,
     title: String,
     subtitle: Option<String>,
+    header_image: Option<String>,
     author: UserProfile,
     content: ExpressionPostContent,
     replies: Vec<Reply>,
@@ -37,7 +38,8 @@ impl ExpressionPost {
     pub fn new(
         id: String,
         title: String,
-        subtitle: String,
+        subtitle: Option<String>,
+        header_image: Option<String>,
         author: UserProfile,
         content_type: String,
         content_value: String,
@@ -50,11 +52,8 @@ impl ExpressionPost {
         Self {
             id,
             title,
-            subtitle: if subtitle.is_empty() {
-                None
-            } else {
-                Some(subtitle)
-            },
+            subtitle,
+            header_image,
             author,
             content: ExpressionPostContent {
                 kind: content_type,
@@ -75,7 +74,8 @@ impl ExpressionPost {
             SELECT
                 post.id AS id, 
                 post.title AS title, 
-                post.subtitle AS subtitle, 
+                post.subtitle AS subtitle,
+                post.header_image AS header_image,
                 profile.id AS author_id, 
                 profile.username AS author_username, 
                 profile.avatar AS author_avatar, 
@@ -117,7 +117,8 @@ impl ExpressionPost {
         Ok(Self::new(
             post_id,
             post.get("title"),
-            post.try_get("subtitle").unwrap_or_else(|_| String::new()),
+            post.get("subtitle"),
+            post.get("header_image"),
             UserProfile::new(
                 post.get("author_id"),
                 post.get("author_username"),
@@ -148,7 +149,8 @@ impl ExpressionPost {
                 (
                     id, 
                     title, 
-                    subtitle, 
+                    subtitle,
+                    header_image,
                     author, 
                     content_type, 
                     content_value
@@ -159,6 +161,7 @@ impl ExpressionPost {
         .bind(&post_id)
         .bind(&post.title)
         .bind(&post.subtitle)
+        .bind(&post.header_image)
         .bind(&profile.id)
         .bind(&post.content.kind)
         .bind(&post.content.value)
@@ -182,6 +185,7 @@ impl ExpressionPost {
             id: post_id,
             title: post.title,
             subtitle: post.subtitle,
+            header_image: post.header_image,
             author: UserProfile::new(profile.id, profile.username, profile.avatar, profile.likes),
             content: ExpressionPostContent {
                 kind: post.content.kind,
@@ -288,6 +292,7 @@ impl ExpressionPost {
                 post.id AS id, 
                 post.title AS title, 
                 post.subtitle AS subtitle, 
+                post.header_image AS header_image,
                 profile.id AS author_id, 
                 profile.username AS author_username, 
                 profile.avatar AS author_avatar, 
@@ -313,7 +318,8 @@ impl ExpressionPost {
             ExpressionPost::new(
                 x.get("id"),
                 x.get("title"),
-                x.try_get("subtitle").unwrap_or_else(|_| String::new()),
+                x.get("subtitle"),
+                x.get("header_image"),
                 UserProfile::new(
                     x.get("author_id"),
                     x.get("author_username"),
@@ -343,6 +349,7 @@ impl ExpressionPost {
                 post.id AS id, 
                 post.title AS title, 
                 post.subtitle AS subtitle, 
+                post.header_image AS header_image,
                 profile.id AS author_id, 
                 profile.username AS author_username, 
                 profile.avatar AS author_avatar, 
@@ -368,7 +375,8 @@ impl ExpressionPost {
             ExpressionPost::new(
                 x.get("id"),
                 x.get("title"),
-                x.try_get("subtitle").unwrap_or_else(|_| String::new()),
+                x.get("subtitle"),
+                x.get("header_image"),
                 UserProfile::new(
                     x.get("author_id"),
                     x.get("author_username"),
@@ -495,6 +503,7 @@ impl ExpressionPost {
 pub struct NewExpressionPost {
     title: String,
     subtitle: Option<String>,
+    header_image: Option<String>,
     content: ExpressionPostContent,
 }
 
