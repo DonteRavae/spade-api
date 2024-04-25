@@ -24,7 +24,7 @@ pub struct ExpressionPost {
     id: String,
     title: String,
     subtitle: Option<String>,
-    header_image: Option<String>,
+    cover_image: Option<String>,
     author: UserProfile,
     content: ExpressionPostContent,
     replies: Vec<Reply>,
@@ -39,7 +39,7 @@ impl ExpressionPost {
         id: String,
         title: String,
         subtitle: Option<String>,
-        header_image: Option<String>,
+        cover_image: Option<String>,
         author: UserProfile,
         content_type: String,
         content_value: String,
@@ -53,7 +53,7 @@ impl ExpressionPost {
             id,
             title,
             subtitle,
-            header_image,
+            cover_image,
             author,
             content: ExpressionPostContent {
                 kind: content_type,
@@ -75,7 +75,7 @@ impl ExpressionPost {
                 post.id AS id, 
                 post.title AS title, 
                 post.subtitle AS subtitle,
-                post.header_image AS header_image,
+                post.cover_image AS cover_image,
                 profile.id AS author_id, 
                 profile.username AS author_username, 
                 profile.avatar AS author_avatar, 
@@ -118,7 +118,7 @@ impl ExpressionPost {
             post_id,
             post.get("title"),
             post.get("subtitle"),
-            post.get("header_image"),
+            post.get("cover_image"),
             UserProfile::new(
                 post.get("author_id"),
                 post.get("author_username"),
@@ -150,7 +150,7 @@ impl ExpressionPost {
                     id, 
                     title, 
                     subtitle,
-                    header_image,
+                    cover_image,
                     author, 
                     content_type, 
                     content_value
@@ -161,7 +161,7 @@ impl ExpressionPost {
         .bind(&post_id)
         .bind(&post.title)
         .bind(&post.subtitle)
-        .bind(&post.header_image)
+        .bind(&post.cover_image)
         .bind(&profile.id)
         .bind(&post.content.kind)
         .bind(&post.content.value)
@@ -185,7 +185,7 @@ impl ExpressionPost {
             id: post_id,
             title: post.title,
             subtitle: post.subtitle,
-            header_image: post.header_image,
+            cover_image: post.cover_image,
             author: UserProfile::new(profile.id, profile.username, profile.avatar, profile.likes),
             content: ExpressionPostContent {
                 kind: post.content.kind,
@@ -292,7 +292,7 @@ impl ExpressionPost {
                 post.id AS id, 
                 post.title AS title, 
                 post.subtitle AS subtitle, 
-                post.header_image AS header_image,
+                post.cover_image AS cover_image,
                 profile.id AS author_id, 
                 profile.username AS author_username, 
                 profile.avatar AS author_avatar, 
@@ -319,7 +319,7 @@ impl ExpressionPost {
                 x.get("id"),
                 x.get("title"),
                 x.get("subtitle"),
-                x.get("header_image"),
+                x.get("cover_image"),
                 UserProfile::new(
                     x.get("author_id"),
                     x.get("author_username"),
@@ -349,7 +349,7 @@ impl ExpressionPost {
                 post.id AS id, 
                 post.title AS title, 
                 post.subtitle AS subtitle, 
-                post.header_image AS header_image,
+                post.cover_image AS cover_image,
                 profile.id AS author_id, 
                 profile.username AS author_username, 
                 profile.avatar AS author_avatar, 
@@ -376,7 +376,7 @@ impl ExpressionPost {
                 x.get("id"),
                 x.get("title"),
                 x.get("subtitle"),
-                x.get("header_image"),
+                x.get("cover_image"),
                 UserProfile::new(
                     x.get("author_id"),
                     x.get("author_username"),
@@ -503,7 +503,7 @@ impl ExpressionPost {
 pub struct NewExpressionPost {
     title: String,
     subtitle: Option<String>,
-    header_image: Option<String>,
+    cover_image: Option<String>,
     content: ExpressionPostContent,
 }
 
