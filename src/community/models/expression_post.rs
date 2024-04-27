@@ -470,8 +470,20 @@ impl ExpressionPost {
             }
         }
 
-        // Delete post
+        // Delete post and likes
         if sqlx::query("DELETE FROM expression_posts WHERE id = ?")
+            .bind(&post_id)
+            .execute(&mut *tx)
+            .await
+            .is_err()
+        {
+            return Err(CommunityError::ServerError(
+                "There seems to be an issue deleting this post. Please try again.".to_string(),
+            )
+            .extend_with(|_, e| e.set("code", 500)));
+        }
+
+        if sqlx::query("DELETE FROM likes WHERE parent_id = ?")
             .bind(&post_id)
             .execute(&mut *tx)
             .await
