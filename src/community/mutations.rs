@@ -5,10 +5,7 @@ use tower_cookies::Cookies;
 
 use crate::{
     auth::{AccessToken, AuthError},
-    community::{
-        models::{expression_post::NewExpressionPost, reply::Reply},
-        user_profile::{NewProfileRequest, UserProfile},
-    },
+    community::models::{expression_post::NewExpressionPost, reply::Reply},
     db::DbController,
 };
 
@@ -21,26 +18,6 @@ pub struct Mutation;
 
 #[Object]
 impl Mutation {
-    pub async fn create_user_profile(
-        &self,
-        ctx: &Context<'_>,
-        request: NewProfileRequest,
-    ) -> Result<UserProfile, Error> {
-        // Check if user is authenticated
-        let Some(cookie) = ctx.data::<Cookies>()?.get("sat") else {
-            return Err(AuthError::Unauthorized(
-                "Please log in to create a user profile.".to_string(),
-            )
-            .extend_with(|_, e| e.set("code", 401)));
-        };
-
-        let access_token_claims = AccessToken::decode(cookie.value())?;
-
-        let db = ctx.data::<Arc<DbController>>()?;
-
-        UserProfile::register(db, access_token_claims.sub, request).await
-    }
-
     pub async fn create_new_expression_post(
         &self,
         ctx: &Context<'_>,
