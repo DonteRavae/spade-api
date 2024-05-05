@@ -1,29 +1,22 @@
-use async_graphql::{Error, ErrorExtensions};
 use fancy_regex::Regex;
-
-use crate::auth::AuthError;
 
 #[derive(Debug)]
 pub struct Email(String);
 
 impl Email {
-    pub fn parse(email: String) -> Result<Self, Error> {
+    pub fn parse(email: String) -> Result<Self, String> {
         let email_validation_test = Regex::new(r"^[\w\-\.]+@([\w-]+\.)+[\w-]{2,}$").unwrap();
         match email_validation_test.is_match(&email) {
             Ok(result) => {
                 if result {
-                    Ok(Email(email))
+                    Ok(Email(email.to_ascii_lowercase()))
                 } else {
-                    Err(
-                        AuthError::BadRequest("Please enter a valid email or password".to_string())
-                            .extend_with(|_, e| e.set("code", 400)),
-                    )
+                    Err("Please enter a valid email or password".to_string())
                 }
             }
-            Err(_) => Err(AuthError::ServerError(
-                "We seem to be having an error on our end. Please try again.".to_string(),
-            )
-            .extend_with(|_, e| e.set("code", 500))),
+            Err(_) => {
+                Err("We seem to be having an error on our end. Please try again.".to_string())
+            }
         }
     }
 
