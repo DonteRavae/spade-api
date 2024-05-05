@@ -1,8 +1,8 @@
-use async_graphql::{Error, ErrorExtensions, InputObject, SimpleObject};
+use async_graphql::{InputObject, SimpleObject};
 use serde::{Deserialize, Serialize};
 use sqlx::{types::Json, FromRow, Row};
 
-use crate::{community::CommunityError, db::DbController};
+use crate::db::DbController;
 
 #[derive(Debug, FromRow, SimpleObject, InputObject, Default, Serialize, Deserialize)]
 pub struct UserProfile {
@@ -22,27 +22,28 @@ impl UserProfile {
         }
     }
 
-    pub async fn does_profile_exist(db: &DbController, id: &str) -> bool {
-        sqlx::query("SELECT * FROM user_profiles WHERE id = ?")
+    pub async fn does_profile_exist(db: &DbController, id: &str, username: &str) -> bool {
+        sqlx::query("SELECT * FROM user_profiles WHERE id = ? OR username = ?")
             .bind(id)
+            .bind(username)
             .fetch_one(&db.community_pool)
             .await
             .is_ok()
     }
 
-    pub async fn register(
-        db: &DbController,
-        id: String,
-        details: NewProfileRequest,
-    ) -> Result<Self, Error> {
-        if Self::does_profile_exist(db, &id).await {
-            return Err(
-                CommunityError::DuplicateProfile("Profile already exists.".to_string())
-                    .extend_with(|_, e| e.set("code", 400)),
-            );
+    pub async fn register(db: &DbController, id: String, username: String) -> Result<Self, String> {
+        if Self::does_profile_exist(db, &id, &username).await {
+            return Err("Profile already exists.".to_string());
         }
 
-        sqlx::query(
+        let Ok(mut tx) = db.community_pool.begin().await else {
+            eprintln!("DATABASE_ERROR: Error starting transaction in UserProfile Register.");
+            return Err("Server error. Please try again".to_string());
+        };
+
+        let avatar = format!("https://api.multiavatar.com/${id}.svg");
+
+        if let Err(_) = sqlx::query(
             r#"
             INSERT INTO user_profiles
                 (
@@ -54,15 +55,20 @@ impl UserProfile {
             "#,
         )
         .bind(&id)
-        .bind(&details.username)
-        .bind(&details.avatar)
-        .execute(&db.community_pool)
-        .await?;
+        .bind(&username)
+        .bind(&avatar)
+        .execute(&mut *tx)
+        .await
+        {
+            eprintln!("DATABASE_ERROR: Error inserting profile in UserProfile Register.");
+            return Err("Server error. Please try again".to_string());
+        };
 
-        Ok(Self::new(id, details.username, details.avatar, vec![]))
+        let _ = tx.commit().await;
+        Ok(Self::new(id, username, avatar, vec![]))
     }
 
-    pub async fn get_by_id(db: &DbController, id: String) -> Result<Self, Error> {
+    pub async fn get_by_id(db: &DbController, id: String) -> Result<Self, String> {
         let Ok(profile) = sqlx::query(
             r#"
             SELECT 
@@ -80,9 +86,7 @@ impl UserProfile {
         .fetch_one(&db.community_pool)
         .await
         else {
-            return Err(CommunityError::Unauthorized.extend_with(|_, e| {
-                e.set("reason", "User is either not logged in or does not exist")
-            }));
+            return Err("User is either not logged in or does not exist".to_string());
         };
 
         let likes: Option<Json<Vec<String>>> = profile.get("likes");
@@ -99,29 +103,34 @@ impl UserProfile {
         ))
     }
 
-    pub async fn delete(db: &DbController, id: String) -> Result<bool, Error> {
-        let mut tx = db.community_pool.begin().await?;
+    pub async fn delete(db: &DbController, id: String) -> Result<bool, String> {
 
-        sqlx::query("DELETE FROM user_profiles WHERE id = ?")
+        let Ok(mut tx) = db.community_pool.begin().await else {
+            eprintln!("DATABASE_ERROR: Error starting transaction in UserProfile Delete.");
+            return Err("Server error. Please try again".to_string());
+        };
+
+        if sqlx::query("DELETE FROM user_profiles WHERE id = ?")
             .bind(&id)
             .execute(&mut *tx)
-            .await?;
+            .await
+            .is_err()
+        {
+            eprintln!("DATABASE_ERROR: Error deleting profile in UserProfile Delete.");
+            return Err("Server error. Please try again.".to_string());
+        };
 
-        sqlx::query("DELETE FROM likes WHERE author = ?")
+        if sqlx::query("DELETE FROM likes WHERE author = ?")
             .bind(id)
             .execute(&mut *tx)
-            .await?;
+            .await
+            .is_err()
+        {
+            eprintln!("DATABASE_ERROR: Error deleting likes in UserProfile Delete.");
+            return Err("Server error. Please try again.".to_string());
+        };
 
-        tx.commit().await?;
+        let _ = tx.commit().await;
         Ok(true)
     }
-}
-
-/********** REQUEST OBJECTS **********/
-
-/****** ADD VALIDATION CHECKS ******/
-#[derive(InputObject, Debug)]
-pub struct NewProfileRequest {
-    pub username: String,
-    pub avatar: String,
 }

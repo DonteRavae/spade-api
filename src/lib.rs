@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
-use async_graphql::{http::GraphiQLSource, EmptySubscription, Schema};
+use async_graphql::{http::GraphiQLSource, EmptySubscription, OutputType, Schema, SimpleObject};
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::{
     extract::State,
     response::{Html, IntoResponse},
 };
+use community::{ExpressionPost, ExpressionPostAggregate, Reply, UserProfile};
 use db::DbController;
 use tower_cookies::Cookies;
 
@@ -71,4 +72,32 @@ pub async fn community_playground() -> impl IntoResponse {
 
 pub fn welcome() {
     println!("SPADE Mental Health API!");
+}
+
+#[derive(SimpleObject)]
+#[graphql(concrete(name = "UserProfileResponse", params(UserProfile)))]
+#[graphql(concrete(name = "ExpressionPostResponse", params(ExpressionPost)))]
+#[graphql(concrete(name = "ExpressionPostResponse", params(ExpressionPostAggregate)))]
+#[graphql(concrete(name = "ReplyResponse", params(Reply)))]
+pub struct GatewayResponse<T: OutputType> {
+    pub success: bool,
+    pub message: Option<String>,
+    pub payload: Option<T>,
+    pub status_code: u16,
+}
+
+impl<T: OutputType> GatewayResponse<T> {
+    pub fn new(
+        success: bool,
+        message: Option<String>,
+        payload: Option<T>,
+        status_code: u16,
+    ) -> Self {
+        Self {
+            success,
+            message,
+            payload,
+            status_code,
+        }
+    }
 }

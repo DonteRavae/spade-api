@@ -1,7 +1,7 @@
 use std::vec;
 
-use crate::{community::CommunityError, db::DbController};
-use async_graphql::{Error, ErrorExtensions, InputObject, SimpleObject};
+use crate::db::DbController;
+use async_graphql::{InputObject, SimpleObject};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Row};
@@ -12,11 +12,16 @@ use super::{
     user_profile::UserProfile,
 };
 
+#[derive(Debug, FromRow, SimpleObject, Deserialize, Serialize)]
+pub struct ExpressionPostAggregate {
+    pub posts: Vec<ExpressionPost>,
+}
+
 #[derive(Debug, FromRow, SimpleObject, InputObject, Deserialize, Serialize)]
 #[graphql(input_name = "NewExpressionPostContent")]
-struct ExpressionPostContent {
-    kind: String,
-    value: String,
+pub struct ExpressionPostContent {
+    pub kind: String,
+    pub value: String,
 }
 
 #[derive(Debug, FromRow, SimpleObject, Serialize, Deserialize)]
@@ -67,7 +72,7 @@ impl ExpressionPost {
         }
     }
 
-    pub async fn get_by_id(db: &DbController, id: String) -> Result<Self, Error> {
+    pub async fn get_by_id(db: &DbController, id: String) -> Result<Self, String> {
         // Get post from database
         let Ok(post) = sqlx::query(
             r#"
@@ -98,19 +103,18 @@ impl ExpressionPost {
         .fetch_one(&db.community_pool)
         .await
         else {
-            return Err(
-                CommunityError::BadRequest("Expression post does not exist.".to_string()).extend(),
+            eprintln!(
+                "DATABASE_ERROR: Error retrieving expression post in ExpressionPost GetById."
             );
+            return Err("Expression post does not exist.".to_string());
         };
 
         let post_id: String = post.get("id");
 
         // Get replies to post from database
-        let Ok(replies) = Reply::get_all_recursively(db, post_id.clone()).await else {
-            return Err(CommunityError::ServerError(
-                "Error retrieving expression post replies from database".to_string(),
-            )
-            .extend_with(|_, e| e.set("code", 500)));
+        let replies = match Reply::get_all_recursively(db, post_id.clone()).await {
+            Ok(replies) => replies,
+            Err(err) => return Err(err),
         };
 
         // Return post
@@ -139,11 +143,14 @@ impl ExpressionPost {
         db: &DbController,
         post: NewExpressionPost,
         author: String,
-    ) -> Result<Self, Error> {
-        let profile = UserProfile::get_by_id(db, author).await?;
+    ) -> Result<Self, String> {
+        let profile = match UserProfile::get_by_id(db, author).await {
+            Ok(profile) => profile,
+            Err(err) => return Err(err),
+        };
 
         let post_id = Ulid::new().to_string();
-        sqlx::query(
+        if sqlx::query(
             r#"
             INSERT INTO expression_posts
                 (
@@ -155,7 +162,7 @@ impl ExpressionPost {
                     content_type, 
                     content_value
                 ) 
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         "#,
         )
         .bind(&post_id)
@@ -166,9 +173,14 @@ impl ExpressionPost {
         .bind(&post.content.kind)
         .bind(&post.content.value)
         .execute(&db.community_pool)
-        .await?;
+        .await
+        .is_err()
+        {
+            eprintln!("DATABASE_ERROR: Error saving expression post in ExpressionPost Save.");
+            return Err("Server error. Please try again.".to_string());
+        }
 
-        let row = sqlx::query(
+        let Ok(row) = sqlx::query(
             r#"
             SELECT 
                 created_at, 
@@ -179,7 +191,13 @@ impl ExpressionPost {
         )
         .bind(&post_id)
         .fetch_one(&db.community_pool)
-        .await?;
+        .await
+        else {
+            eprintln!(
+                "DATABASE_ERROR: Error getting expression post metadata in ExpressionPost Save."
+            );
+            return Err("Server error. Please try again.".to_string());
+        };
 
         Ok(ExpressionPost {
             id: post_id,
@@ -203,7 +221,7 @@ impl ExpressionPost {
         db: &DbController,
         update_request: UpdateLikesRequest,
         user_id: String,
-    ) -> Result<(), Error> {
+    ) -> Result<(), String> {
         let statement = if update_request.update_value == 1 {
             r#"
                 INSERT INTO likes
@@ -220,11 +238,16 @@ impl ExpressionPost {
             "#
         };
 
-        sqlx::query(statement)
+        if sqlx::query(statement)
             .bind(update_request.post_id)
             .bind(user_id)
             .execute(&db.community_pool)
-            .await?;
+            .await
+            .is_err()
+        {
+            eprintln!("DATABASE_ERROR: Error updating expression post likes in ExpressionPost Update Likes.");
+            return Err("Server error. Please try again.".to_string());
+        };
         Ok(())
     }
 
@@ -232,7 +255,7 @@ impl ExpressionPost {
         db: &DbController,
         author: String,
         request: NewReplyRequest,
-    ) -> Result<Reply, Error> {
+    ) -> Result<Reply, String> {
         let reply_id = Ulid::new().to_string();
         if sqlx::query(
             r#"
@@ -254,15 +277,18 @@ impl ExpressionPost {
         .await
         .is_err()
         {
-            return Err(CommunityError::ServerError(
+            eprintln!("DATABASE_ERROR: Error adding reply to expression post in ExpressionPost Add Reply.");
+            return Err(
                 "Seems there was an error adding your request. Please try again.".to_string(),
-            )
-            .extend_with(|_, e| e.set("code", 500)));
+            );
         }
 
-        let user_profile = UserProfile::get_by_id(db, author).await?;
+        let user_profile = match UserProfile::get_by_id(db, author).await {
+            Ok(profile) => profile,
+            Err(err) => return Err(err),
+        };
 
-        let row = sqlx::query(
+        let Ok(row) = sqlx::query(
             r#"
             SELECT 
                 created_at, 
@@ -273,7 +299,13 @@ impl ExpressionPost {
         )
         .bind(&reply_id)
         .fetch_one(&db.community_pool)
-        .await?;
+        .await
+        else {
+            eprintln!(
+                "DATABASE_ERROR: Error getting expression post metadata in ExpressionPost Add Reply."
+            );
+            return Err("Server error. Please try again.".to_string());
+        };
 
         Ok(Reply::new(
             reply_id,
@@ -285,8 +317,8 @@ impl ExpressionPost {
         ))
     }
 
-    pub async fn get_recent_posts(db: &DbController, limit: u16) -> Result<Vec<Self>, Error> {
-        let posts = sqlx::query(
+    pub async fn get_recent_posts(db: &DbController, limit: u16) -> Result<Vec<Self>, String> {
+        let Ok(posts) = sqlx::query(
             r#"
             SELECT
                 post.id AS id, 
@@ -336,14 +368,18 @@ impl ExpressionPost {
             )
         })
         .fetch_all(&db.community_pool)
-        .await?;
+        .await
+        else {
+            eprintln!("DATABASE ERROR: Error retrieving recent expression posts in ExpressionPost GetRecentPosts");
+            return Err("Server error. Please try again.".to_string());
+        };
 
         Ok(posts)
     }
 
-    pub async fn get_trending_posts(db: &DbController, limit: u16) -> Result<Vec<Self>, Error> {
+    pub async fn get_trending_posts(db: &DbController, limit: u16) -> Result<Vec<Self>, String> {
         // Change QUERY to find most liked within a two week span
-        let posts = sqlx::query(
+        let Ok(posts) = sqlx::query(
             r#"
             SELECT
                 post.id AS id, 
@@ -393,7 +429,11 @@ impl ExpressionPost {
             )
         })
         .fetch_all(&db.community_pool)
-        .await?;
+        .await
+        else {
+            eprintln!("DATABASE ERROR: Error retrieving trending expression posts in ExpressionPost GetTrendingPosts");
+            return Err("Server error. Please try again.".to_string());
+        };
 
         Ok(posts)
     }
@@ -402,41 +442,54 @@ impl ExpressionPost {
         db: &DbController,
         request: UpdateContentRequest,
         logged_in_user: String,
-    ) -> Result<Self, Error> {
-        let mut tx = db.community_pool.begin().await?;
+    ) -> Result<Self, String> {
+        let Ok(mut tx) = db.community_pool.begin().await else {
+            eprintln!(
+                "DATABASE_ERROR: Error starting transaction in ExpressionPost UpdateContent."
+            );
+            return Err("Server error. Please try again".to_string());
+        };
 
-        let author = sqlx::query("SELECT author FROM expression_posts WHERE id = ?")
+        let Ok(author) = sqlx::query("SELECT author FROM expression_posts WHERE id = ?")
             .bind(&logged_in_user)
             .fetch_optional(&mut *tx)
-            .await?;
+            .await
+        else {
+            eprintln!("DATABASE_ERROR: Error getting author in ExpressionPost UpdateContent.");
+            return Err("Server error. Please try again.".to_string());
+        };
 
-        // Check to make sure person deleting post is author
+        // Check to make sure person updating post is author
         if author.is_none() {
-            return Err(
-                CommunityError::BadRequest("Expression post does not exist.".to_string()).extend(),
-            );
+            return Err("Expression post does not exist.".to_string());
         } else {
             let author: String = author.unwrap().get("author");
             if author != logged_in_user {
-                return Err(CommunityError::Unauthorized.extend_with(|_, e| {
-                    e.set(
-                        "reason",
-                        "User making request and expression post author do not match.",
-                    )
-                }));
+                return Err(
+                    "User making request and expression post author do not match.".to_string(),
+                );
             }
         }
 
-        sqlx::query("UPDATE expression_posts SET content_type = ?, content_value = ? WHERE id = ?")
-            .bind(request.content_type)
-            .bind(request.content_value)
-            .bind(&request.post_id)
-            .execute(&mut *tx)
-            .await?;
+        if sqlx::query(
+            "UPDATE expression_posts SET content_type = ?, content_value = ? WHERE id = ?",
+        )
+        .bind(request.content_type)
+        .bind(request.content_value)
+        .bind(&request.post_id)
+        .execute(&mut *tx)
+        .await
+        .is_err()
+        {
+            eprintln!(
+                "DATABASE_ERROR: Error updating expression post in ExpressionPost UpdateContent."
+            );
+            return Err("Server error. Please try again.".to_string());
+        };
 
         let post = Self::get_by_id(db, request.post_id).await?;
 
-        tx.commit().await?;
+        let _ = tx.commit().await;
 
         Ok(post)
     }
@@ -445,28 +498,30 @@ impl ExpressionPost {
         db: &DbController,
         post_id: String,
         logged_in_user: String,
-    ) -> Result<bool, Error> {
-        let mut tx = db.community_pool.begin().await?;
+    ) -> Result<bool, String> {
+        let Ok(mut tx) = db.community_pool.begin().await else {
+            eprintln!("DATABASE_ERROR: Error starting transaction in ExpressionPost Delete.");
+            return Err("Server error. Please try again".to_string());
+        };
 
-        let author = sqlx::query("SELECT author FROM expression_posts WHERE id = ?")
-            .bind(&post_id)
+        let Ok(author) = sqlx::query("SELECT author FROM expression_posts WHERE id = ?")
+            .bind(&logged_in_user)
             .fetch_optional(&mut *tx)
-            .await?;
+            .await
+        else {
+            eprintln!("DATABASE_ERROR: Error getting author in ExpressionPost Delete.");
+            return Err("Server error. Please try again.".to_string());
+        };
 
         // Check to make sure person deleting post is author
         if author.is_none() {
-            return Err(
-                CommunityError::BadRequest("Expression post does not exist.".to_string()).extend(),
-            );
+            return Err("Expression post does not exist.".to_string());
         } else {
             let author: String = author.unwrap().get("author");
             if author != logged_in_user {
-                return Err(CommunityError::Unauthorized.extend_with(|_, e| {
-                    e.set(
-                        "reason",
-                        "User making request and expression post author do not match.",
-                    )
-                }));
+                return Err(
+                    "User making request and expression post author do not match.".to_string(),
+                );
             }
         }
 
@@ -477,10 +532,10 @@ impl ExpressionPost {
             .await
             .is_err()
         {
-            return Err(CommunityError::ServerError(
+            eprintln!("DATABASE_ERROR: Error deleting expression post in ExpressionPost Delete.");
+            return Err(
                 "There seems to be an issue deleting this post. Please try again.".to_string(),
-            )
-            .extend_with(|_, e| e.set("code", 500)));
+            );
         }
 
         if sqlx::query("DELETE FROM likes WHERE parent_id = ?")
@@ -489,21 +544,25 @@ impl ExpressionPost {
             .await
             .is_err()
         {
-            return Err(CommunityError::ServerError(
+            eprintln!(
+                "DATABASE_ERROR: Error deleting expression post likes in ExpressionPost Delete."
+            );
+            return Err(
                 "There seems to be an issue deleting this post. Please try again.".to_string(),
-            )
-            .extend_with(|_, e| e.set("code", 500)));
+            );
         }
 
         // Delete all replies associated with post
         if Reply::delete_all_from_post(db, post_id).await.is_err() {
-            return Err(CommunityError::ServerError(
+            eprintln!(
+                "DATABASE_ERROR: Error deleting expression post replies in ExpressionPost Delete."
+            );
+            return Err(
                 "There seems to be an issue deleting this post. Please try again.".to_string(),
-            )
-            .extend_with(|_, e| e.set("code", 500)));
+            );
         };
 
-        tx.commit().await?;
+        let _ = tx.commit().await;
         Ok(true)
     }
 }
@@ -513,10 +572,10 @@ impl ExpressionPost {
 /****** ADD VALIDATION CHECKS ******/
 #[derive(InputObject, Debug)]
 pub struct NewExpressionPost {
-    title: String,
-    subtitle: Option<String>,
-    cover_image: Option<String>,
-    content: ExpressionPostContent,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub cover_image: Option<String>,
+    pub content: ExpressionPostContent,
 }
 
 /****** ADD VALIDATION CHECKS ******/

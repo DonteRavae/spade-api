@@ -1,9 +1,9 @@
-use async_graphql::{Error, ErrorExtensions, InputObject, SimpleObject};
+use async_graphql::{InputObject, SimpleObject};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{mysql::MySqlRow, Row};
 
-use crate::{community::CommunityError, db::DbController};
+use crate::db::DbController;
 
 use super::user_profile::UserProfile;
 
@@ -40,8 +40,8 @@ impl Reply {
     pub async fn get_all_recursively(
         db: &DbController,
         parent_id: String,
-    ) -> Result<Vec<Self>, Error> {
-        sqlx::query(
+    ) -> Result<Vec<Self>, String> {
+        let Ok(_replies) = sqlx::query(
             r#"
             SELECT
                 reply.id AS id,
@@ -73,7 +73,13 @@ impl Reply {
             )
         })
         .fetch_all(&db.community_pool)
-        .await?;
+        .await
+        else {
+            eprintln!(
+                "DATABASE ERROR: Error retrieving recursive replies in Reply GetAllRecursively"
+            );
+            return Err("Server error. Please try again.".to_string());
+        };
         todo!()
     }
 
@@ -81,42 +87,57 @@ impl Reply {
         db: &DbController,
         reply_id: String,
         logged_in_user: String,
-    ) -> Result<bool, Error> {
-        let author = sqlx::query("SELECT author FROM replies WHERE id = ?")
+    ) -> Result<bool, String> {
+        let Ok(author) = sqlx::query("SELECT author FROM replies WHERE id = ?")
             .bind(&reply_id)
             .fetch_optional(&db.community_pool)
-            .await?;
+            .await
+        else {
+            eprintln!("DATABASE ERROR: Error getting author in Reply Delete");
+            return Err("Server error. Please try again.".to_string());
+        };
 
         // Check to make sure person deleting post is author
         if author.is_none() {
-            return Err(
-                CommunityError::BadRequest("Reply does not exist.".to_string()).extend(),
-            );
+            return Err("Reply does not exist.".to_string());
         } else {
             let author: String = author.unwrap().get("author");
             if author != logged_in_user {
-                return Err(CommunityError::Unauthorized.extend_with(|_, e| {
-                    e.set(
-                        "reason",
-                        "User making request and reply author do not match.",
-                    )
-                }));
+                return Err("User making request and reply author do not match.".to_string());
             }
         }
-        sqlx::query("DELETE FROM replies WHERE id = ?")
+
+        if sqlx::query("DELETE FROM replies WHERE id = ?")
             .bind(reply_id)
             .execute(&db.community_pool)
-            .await?;
+            .await
+            .is_err()
+        {
+            eprintln!("DATABASE ERROR: Error deleting replies in Reply Delete");
+            return Err("Server error. Please try again.".to_string());
+        };
         Ok(true)
     }
 
-    pub async fn delete_all_from_post(db: &DbController, post_id: String) -> Result<(), Error> {
-        let mut tx = db.community_pool.begin().await?;
-        sqlx::query("DELETE FROM replies WHERE parent = ?")
+    pub async fn delete_all_from_post(db: &DbController, post_id: String) -> Result<(), String> {
+        let Ok(mut tx) = db.community_pool.begin().await else {
+            eprintln!("DATABASE_ERROR: Error starting transaction in Reply DeleteAllFromPost.");
+            return Err("Server error. Please try again".to_string());
+        };
+
+        if sqlx::query("DELETE FROM replies WHERE parent = ?")
             .bind(post_id)
             .execute(&mut *tx)
-            .await?;
-        tx.commit().await?;
+            .await
+            .is_err()
+        {
+            eprintln!(
+                "DATABASE ERROR: Error deleting all replies from post in Reply DeleteAllFromPost"
+            );
+            return Err("Server error. Please try again.".to_string());
+        };
+
+        let _ = tx.commit().await;
         Ok(())
     }
 }
