@@ -77,7 +77,10 @@ pub fn welcome() {
 #[derive(SimpleObject)]
 #[graphql(concrete(name = "UserProfileResponse", params(UserProfile)))]
 #[graphql(concrete(name = "ExpressionPostResponse", params(ExpressionPost)))]
-#[graphql(concrete(name = "ExpressionPostResponse", params(ExpressionPostAggregate)))]
+#[graphql(concrete(
+    name = "ExpressionPostAggregateResponse",
+    params(ExpressionPostAggregate)
+))]
 #[graphql(concrete(name = "ReplyResponse", params(Reply)))]
 pub struct GatewayResponse<T: OutputType> {
     pub success: bool,
