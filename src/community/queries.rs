@@ -37,7 +37,7 @@ impl Query {
                 false,
                 Some("It seems we have a problem. Please try again.".to_string()),
                 None,
-                500,
+                400,
             ));
         };
 
